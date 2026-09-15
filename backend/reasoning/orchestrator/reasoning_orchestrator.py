@@ -66,6 +66,9 @@ from backend.reasoning.context.scientific_context_builder import (
     ScientificContextBuilder,
 )
 from backend.reasoning.therapeutic_evidence_audit import has_high_quality_therapeutic_evidence
+from backend.reasoning.directional.therapeutic_evidence import (
+    is_therapeutically_eligible_evidence,
+)
 from backend.infrastructure.knowledge.knowledge_store import KnowledgeStore
 from backend.core.value_objects.source_url_builder import SourceURLBuilder
 from backend.reasoning.orchestrator.decision_rules import (
@@ -694,8 +697,13 @@ class ReasoningOrchestrator:
 
         raw_weighted_sum = 0.0
         quality_weighted_sum = 0.0
+        excluded_nontherapeutic_count = 0
 
         for ev in package.evidence_records:
+            eligible, _reason = is_therapeutically_eligible_evidence(ev)
+            if not eligible:
+                excluded_nontherapeutic_count += 1
+                continue
             ceiling = _ERW_CEILING_BY_TYPE.get(ev.evidence_type, 0.60)
             capped_erw = min(ev.erw.value, ceiling)
             raw_weighted_sum += ev.erw.value
@@ -716,7 +724,7 @@ class ReasoningOrchestrator:
             raw_weighted_sum += c.erw.value
             type_buckets["claim"].append(capped)
 
-        count = len(supporting_claims) + len(package.evidence_records)
+        count = len(supporting_claims) + len(package.evidence_records) - excluded_nontherapeutic_count
 
         # Diminishing returns formula with quality-weighted sum
         k = 0.12

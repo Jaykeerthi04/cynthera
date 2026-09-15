@@ -1,0 +1,38 @@
+{
+  "studies": [
+    {
+      "protocolSection": {
+        "identificationModule": {
+          "nctId": "NCT00000062",
+          "briefTitle": "Ranibizumab in age-related macular degeneration"
+        },
+        "statusModule": {
+          "overallStatus": "COMPLETED",
+          "hasResults": false
+        },
+        "designModule": {
+          "phases": ["PHASE3"],
+          "studyType": "INTERVENTIONAL",
+          "designInfo": {
+            "allocation": "RANDOMIZED"
+          }
+        },
+        "conditionsModule": {
+          "conditions": ["Age-related macular degeneration"]
+        },
+        "armsInterventionsModule": {
+          "armGroups": [
+            {
+              "type": "EXPERIMENTAL",
+              "interventionNames": ["Drug: Ranibizumab"]
+            },
+            {
+              "type": "PLACEBO_COMPARATOR",
+              "interventionNames": ["Drug: Placebo"]
+            }
+          ]
+        }
+      }
+    }
+  ]
+}
