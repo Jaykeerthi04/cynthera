@@ -35,19 +35,41 @@ NODE_COLORS = {
     "DISEASE": "#ef4444",  # Red
 }
 
+
+def _short_label(name: str, limit: int = 18) -> str:
+    """Keep dense graphs readable while preserving full names in hover text."""
+    clean = " ".join(str(name).split())
+    return clean if len(clean) <= limit else f"{clean[:limit - 1]}…"
+
+
+def _playground_summary(graph_data: PlaygroundGraphData) -> dict[str, int]:
+    """Return display counts sourced from the extracted result, not new scoring."""
+    return {
+        "mechanisms": len(graph_data.candidate_mechanisms),
+        "evidence": len(graph_data.evidence),
+        "claims": len(graph_data.claim_citations),
+        "trials": len(graph_data.clinical_trials),
+        "contradictions": len(graph_data.contradictions),
+        "mapped_supporting": graph_data.landscape.supporting_count,
+    }
+
+
+def _presentation_gaps(graph_data: PlaygroundGraphData, result: Any) -> list[str]:
+    """Merge existing extractor diagnostics with existing result data-gap messages."""
+    gaps = [gap.label for gap in graph_data.evidence_gaps if gap.status != "FOUND"]
+    for gap in getattr(result, "data_gaps", []) or []:
+        text = str(gap)
+        if text and text not in gaps:
+            gaps.append(text)
+    return gaps
+
 def _get_or_compute_layout(graph_data: PlaygroundGraphData) -> dict[str, tuple[float, float]]:
-    """Compute and cache deterministic node layout coordinates."""
+    """Compute a readable left-to-right layered layout with deterministic spacing."""
     cache_key = f"layout_{graph_data.hypothesis_id}"
     if cache_key in st.session_state:
         return st.session_state[cache_key]
 
-    type_tiers = {
-        "DRUG": 0.0,
-        "TARGET": 1.2,
-        "GENE": 2.2,
-        "PATHWAY": 2.6,
-        "DISEASE": 3.8,
-    }
+    type_tiers = {"DRUG": 0.0, "TARGET": 1.7, "PATHWAY": 3.3, "GENE": 4.9, "DISEASE": 6.6}
 
     nodes_by_type: dict[str, list[str]] = {}
     for node in graph_data.nodes:
@@ -58,8 +80,8 @@ def _get_or_compute_layout(graph_data: PlaygroundGraphData) -> dict[str, tuple[f
         base_x = type_tiers.get(label, 2.0)
         n_count = len(node_ids)
         for idx, nid in enumerate(node_ids):
-            y = (idx - (n_count - 1) / 2.0) * 1.3
-            x = base_x + (0.15 if label == "PATHWAY" and idx % 2 == 1 else 0.0)
+            y = (idx - (n_count - 1) / 2.0) * 1.15
+            x = base_x
             pos[nid] = (x, y)
 
     st.session_state[cache_key] = pos
@@ -135,11 +157,8 @@ def _build_playground_figure(
     edge_markers_trace = go.Scatter(
         x=mid_x,
         y=mid_y,
-        mode="markers+text",
+        mode="markers",
         marker=dict(size=11, color=mid_colors, symbol=mid_symbols),
-        text=[t.split("<br>")[0][:14] for t in mid_text],
-        textposition="top center",
-        textfont=dict(size=9, color="#94a3b8"),
         customdata=mid_customdata,
         hovertext=mid_text,
         hoverinfo="text",
@@ -176,16 +195,12 @@ def _build_playground_figure(
         node_customdata.append(f"NODE:{node.id}")
         node_text.append(f"<b>{node.name}</b><br>Type: {node.label}<br>ID: {node.id}")
 
-        # Format display text: split long multi-word names across 2 lines
-        words = node.name.split()
-        if len(words) > 2 and len(node.name) > 14:
-            mid = len(words) // 2
-            display_label = " ".join(words[:mid]) + "<br>" + " ".join(words[mid:])
-        elif len(node.name) > 18:
-            display_label = node.name[:16] + "…"
-        else:
-            display_label = node.name
-        node_display_texts.append(display_label)
+        # Full names remain in hover; dense graphs show only key/selected labels.
+        node_display_texts.append(
+            _short_label(node.name)
+            if node.label in {"DRUG", "DISEASE"} or is_selected or len(graph_data.nodes) <= 35
+            else ""
+        )
 
     nodes_trace = go.Scatter(
         x=node_x,
@@ -198,7 +213,7 @@ def _build_playground_figure(
         ),
         text=node_display_texts,
         textposition="bottom center",
-        textfont=dict(size=11, color="#f1f5f9"),
+        textfont=dict(size=10, color="#f1f5f9"),
         customdata=node_customdata,
         hovertext=node_text,
         hoverinfo="text",
@@ -213,7 +228,7 @@ def _build_playground_figure(
         hovermode="closest",
         xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
         yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
-        height=560,
+        height=max(600, min(900, 420 + max(len(graph_data.nodes), 1) * 7)),
         clickmode="event+select",
         dragmode="pan",
         legend=dict(
@@ -305,6 +320,28 @@ def render_playground_view() -> None:
 
     # Extract Graph Data
     graph_data = extract_relevant_subgraph(pkg, res)
+    summary = _playground_summary(graph_data)
+    presentation_gaps = _presentation_gaps(graph_data, res)
+
+    st.markdown("### Evidence landscape")
+    sm1, sm2, sm3, sm4, sm5, sm6 = st.columns(6)
+    sm1.metric("Mechanisms", summary["mechanisms"])
+    sm2.metric("Evidence", summary["evidence"])
+    sm3.metric("Claims", summary["claims"])
+    sm4.metric("Clinical trials", summary["trials"])
+    sm5.metric("Contradictions", summary["contradictions"])
+    sm6.metric("Evidence gaps", len(presentation_gaps), help="Existing backend/extractor diagnostics; not a new score.")
+    if summary["mapped_supporting"] != summary["evidence"]:
+        st.caption(
+            f"Mapped supporting evidence: {summary['mapped_supporting']} of {summary['evidence']} records. "
+            "This is a graph-mapping count, not the Support Score."
+        )
+    if presentation_gaps:
+        with st.expander(f"Evidence gaps present ({len(presentation_gaps)})", expanded=False):
+            for gap in presentation_gaps:
+                st.markdown(f"- {gap}")
+    else:
+        st.caption("No evidence gaps detected by the existing backend diagnostics.")
 
     # State initialization for this hypothesis
     disabled_edges_key = f"disabled_edges_{active_hyp_id}"
@@ -400,8 +437,13 @@ def render_playground_view() -> None:
             if selected_type == "edge" and selected_element:
                 edge = lookups["edges"].get(selected_element)
                 if edge:
+                    node_names = {node.id: node.name for node in graph_data.nodes}
+                    source_name = node_names.get(edge.source_id, edge.source_id)
+                    target_name = node_names.get(edge.target_id, edge.target_id)
                     st.markdown("### ❓ Why is this relationship here?")
-                    st.markdown(f"**From:** `{edge.source_id}`<br>**Predicate:** `{edge.predicate}`<br>**To:** `{edge.target_id}`", unsafe_allow_html=True)
+                    st.markdown(
+                        f"**{source_name}**  \n↓ **{edge.predicate}** ↓  \n**{target_name}**"
+                    )
                     st.markdown("---")
 
                     c_m1, c_m2, c_m3 = st.columns(3)
@@ -411,6 +453,14 @@ def render_playground_view() -> None:
 
                     st.markdown("#### Provenance & Sources")
                     st.write(f"• **Source DB:** `{edge.source_database or 'Curated Biomedical DB'}`")
+                    st.write(f"• **Evidence type:** `{edge.data_quality}`")
+                    if (edge.source_database or "").lower() == "reactome" or edge.data_quality.upper() == "STRUCTURAL":
+                        st.info(
+                            "Structural pathway membership is shown for traceability; it does not by itself "
+                            "establish a therapeutic or causal relationship."
+                        )
+                    else:
+                        st.caption("This relationship is presented from the stored evidence graph and provenance.")
                     st.write(f"• **Quality:** `{edge.data_quality}`")
                     if edge.provenance:
                         st.write(f"• **Detail:** {edge.provenance}")
