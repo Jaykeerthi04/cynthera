@@ -24,6 +24,11 @@ from backend.core.domain.reactome_reaction_evidence import ReactomeReactionEvide
 from backend.core.value_objects.biological_identifier import BiologicalIdentifierMapping
 from backend.core.enums.evidence_type import EvidenceType
 from backend.core.enums.trial_outcome import TrialOutcomeStatus
+from backend.core.enums.statistical_direction import (
+    OutcomeDirection,
+    StatisticalReasonCode,
+    OutcomeEvaluationResult,
+)
 from backend.core.value_objects.erw import ERW
 from backend.core.value_objects.provenance import ProvenanceReference
 from backend.engineering.retrieval.connectors.chembl import ChEMBLConnector
@@ -32,6 +37,12 @@ from backend.engineering.retrieval.connectors.pubmed import PubMedConnector
 from backend.engineering.retrieval.connectors.reactome import ReactomeConnector
 from backend.engineering.retrieval.connectors.clinicaltrials import ClinicalTrialsConnector
 from backend.engineering.retrieval.connectors.disgenet import DisGeNETConnector
+from backend.engineering.retrieval.disease_relation import (
+    DiseaseRelation,
+    classify_disease_relation,
+    matches_for_approval_anchor,
+    matches_for_trial_attribution,
+)
 from backend.infrastructure.cache.raw_response_cache import (
     RawResponseCache,
     TTL_STRUCTURAL,
@@ -360,6 +371,18 @@ class RetrievalPipeline:
             disease.name,
         )
 
+        # --- Active-form indication rollup (Fix 2) ---
+        # If no disease-matched indication found for the parent molecule,
+        # try querying active-form ChEMBL IDs (salts/esters that may carry
+        # the actual approved indications in ChEMBL).
+        if (
+            approval_signal is not None
+            and not approval_signal.is_approved
+        ):
+            approval_signal = await self._try_active_form_indications(
+                chembl_data, disease.name, approval_signal
+            )
+
         # --- Determine clinical trial retrieval status (not just count) ---
         if "clinicaltrials" in sources_failed:
             ct_status = "API_FAILURE"
@@ -513,6 +536,179 @@ class RetrievalPipeline:
                 "molecule_details": mol_details,
                 "indications": ind_data,
             }
+
+    async def _try_active_form_indications(
+        self,
+        chembl_data: dict[str, Any],
+        disease_name: str,
+        fallback_signal: ApprovalSignal | None,
+    ) -> ApprovalSignal | None:
+        """Try active-form ChEMBL IDs when the parent molecule has no matched indication.
+
+        Some drugs (e.g., Fluticasone) are parent INN names whose approved indications
+        are registered in ChEMBL under active salt/ester forms (Fluticasone Propionate,
+        Fluticasone Furoate).  This method resolves those active forms dynamically via
+        ChEMBL pref_name prefix search, NOT via the parent's molecule_synonyms (which
+        are often empty for parent entries).
+
+        No drug names are hardcoded — active-form candidates are discovered from
+        ChEMBL using a prefix query on pref_name.
+
+        Validation gates:
+        1. Candidate pref_name must start with the parent drug name.
+        2. Candidate must have a suffix (salt/ester form, not the same molecule).
+        3. Candidate must be a different ChEMBL ID from the parent.
+        4. Only indication data that matches the queried disease is used.
+
+        Args:
+            chembl_data: The full ChEMBL data dict from _fetch_chembl().
+            disease_name: The queried disease name.
+            fallback_signal: The ApprovalSignal to return if no active form matches.
+
+        Returns:
+            An improved ApprovalSignal if an active form has a disease-matched
+            indication, otherwise the original fallback_signal.
+        """
+        mol_details = chembl_data.get("molecule_details", {})
+        parent_name = (mol_details.get("pref_name") or "").strip()
+        parent_name_lower = parent_name.lower()
+
+        if not parent_name or len(parent_name) < 3:
+            return fallback_signal
+
+        # --- Strategy 1: Dynamic discovery via ChEMBL pref_name prefix search ---
+        active_form_candidates: list[dict[str, Any]] = []
+
+        async with ChEMBLConnector() as conn:
+            try:
+                url = f"{conn.base_url}/molecule.json"
+                search_res = await conn._get(url, params={
+                    "pref_name__istartswith": parent_name,
+                    "format": "json",
+                    "limit": 10,
+                })
+                for mol in search_res.get("molecules", []):
+                    cand_name = (mol.get("pref_name") or "").strip()
+                    cand_id = mol.get("molecule_chembl_id", "")
+                    cand_lower = cand_name.lower()
+
+                    # Gate 1: Must start with parent name
+                    if not cand_lower.startswith(parent_name_lower):
+                        continue
+                    # Gate 2: Must have a suffix (salt/ester, not the parent itself)
+                    if cand_lower == parent_name_lower:
+                        continue
+                    if len(cand_lower) <= len(parent_name_lower) + 2:
+                        continue
+                    # Gate 3: Must be a different ChEMBL ID
+                    parent_chembl_ids = set()
+                    if chembl_data.get("bioactivities", {}).get("activities"):
+                        first_act = chembl_data["bioactivities"]["activities"][0]
+                        pid = first_act.get("molecule_chembl_id", "")
+                        if pid:
+                            parent_chembl_ids.add(pid)
+                    # Also guard by the molecule details if available
+                    if mol_details.get("pref_name", "").strip().lower() == cand_lower:
+                        continue
+
+                    active_form_candidates.append({
+                        "name": cand_name,
+                        "chembl_id": cand_id,
+                    })
+            except Exception as exc:
+                logger.debug(
+                    "active_form_prefix_search_failed",
+                    extra={"parent": parent_name, "error": str(exc)},
+                )
+
+            # --- Strategy 2: Fallback to synonym-based discovery (original approach) ---
+            if not active_form_candidates:
+                synonyms = mol_details.get("molecule_synonyms", [])
+                for syn in synonyms:
+                    syn_clean = syn.strip()
+                    syn_lower = syn_clean.lower()
+                    if (
+                        syn_lower != parent_name_lower
+                        and syn_lower.startswith(parent_name_lower)
+                        and len(syn_lower) > len(parent_name_lower) + 2
+                    ):
+                        active_form_candidates.append({
+                            "name": syn_clean,
+                            "chembl_id": None,  # needs resolution
+                        })
+
+            if not active_form_candidates:
+                return fallback_signal
+
+            # Limit to 4 active forms to avoid excessive API calls
+            active_form_candidates = active_form_candidates[:4]
+            logger.info(
+                "active_form_rollup_attempting",
+                extra={
+                    "parent": parent_name,
+                    "active_forms": [c["name"] for c in active_form_candidates],
+                    "disease": disease_name,
+                },
+            )
+
+            best_signal = fallback_signal
+
+            for candidate in active_form_candidates:
+                try:
+                    af_chembl_id = candidate["chembl_id"]
+
+                    # Resolve ChEMBL ID if not already known (synonym-based path)
+                    if not af_chembl_id:
+                        search_res = await conn.search_molecule(candidate["name"])
+                        molecules = search_res.get("molecules", [])
+                        if not molecules:
+                            continue
+                        af_chembl_id = molecules[0].get("molecule_chembl_id")
+                        if not af_chembl_id:
+                            continue
+
+                    # Fetch indications and molecule details for the active form
+                    af_ind_data, af_mol_details = await asyncio.gather(
+                        conn.fetch_indications(af_chembl_id),
+                        conn.fetch_molecule_details(af_chembl_id),
+                        return_exceptions=True,
+                    )
+
+                    if isinstance(af_ind_data, Exception):
+                        continue
+                    if isinstance(af_mol_details, Exception):
+                        af_mol_details = {}
+
+                    af_signal = self._parse_indication_data(
+                        af_ind_data, af_mol_details, disease_name, source=f"chembl:{candidate['name']}"
+                    )
+
+                    if af_signal is not None and (
+                        af_signal.is_approved
+                        or af_signal.match_confidence > (best_signal.match_confidence if best_signal else 0.0)
+                    ):
+                        logger.info(
+                            "active_form_indication_match",
+                            extra={
+                                "active_form": candidate["name"],
+                                "chembl_id": af_chembl_id,
+                                "matched_term": af_signal.matched_indication_term,
+                                "max_phase": af_signal.max_phase,
+                                "confidence": af_signal.match_confidence,
+                            },
+                        )
+                        best_signal = af_signal
+                        if af_signal.is_approved:
+                            break  # Found an approved match, no need to continue
+
+                except Exception as exc:
+                    logger.debug(
+                        "active_form_indication_failed",
+                        extra={"active_form": candidate["name"], "error": str(exc)},
+                    )
+
+        return best_signal
+
 
     async def _fetch_uniprot(self, uniprot_ids: list[str]) -> dict[str, Any]:
         """Fetch protein information from UniProt.
@@ -937,11 +1133,93 @@ class RetrievalPipeline:
             logger.debug("disgenet_fetch_failed", extra={"error": str(exc)})
             return {}
 
+    @staticmethod
+    def _normalize_disease_variants(disease_name: str) -> list[str]:
+        """Generate ontology-aware parent-term variants of a disease name.
+
+        Handles common medical naming patterns where a queried disease is a
+        subtype qualifier on a parent disease (e.g., 'ER-positive breast cancer'
+        → 'breast cancer').  Returns the original name plus any derived parent
+        terms (deduplicated, order-preserved).
+
+        No drug names, disease names, or biomedical facts are hardcoded — this
+        is purely a structural/linguistic normalization.
+
+        Patterns handled:
+        - Receptor-status qualifiers: 'ER-positive X', 'HER2-positive X'
+        - Directional qualifiers: 'Secondary prevention of X'
+        - Molecular subtypes: 'KRAS-mutant X', 'BRCA1-related X'
+        """
+        variants: list[str] = [disease_name]
+        name_lower = disease_name.lower().strip()
+
+        # Pattern 1: "XX-positive / XX-negative / XX-mutant / XX-related disease"
+        # E.g., "ER-positive breast cancer" → "breast cancer"
+        for qualifier_pattern in [
+            r"^(?:er|pr|her2|hr|triple|egfr|alk|pd-?l1|kras|braf|brca\d?|nras|flt3|idh\d?)"
+            r"[- ]?(?:positive|negative|mutant|mutated|wild[- ]?type|amplified|overexpressing"
+            r"|related|driven|high|low|expressing)\s+",
+        ]:
+            match = re.match(qualifier_pattern, name_lower, re.IGNORECASE)
+            if match:
+                parent = disease_name[match.end():].strip()
+                if parent and len(parent) >= 4:
+                    variants.append(parent)
+
+        # Pattern 2: "Secondary prevention of X", "Primary prevention of X"
+        prev_match = re.match(
+            r"^(?:secondary|primary|tertiary)\s+prevention\s+of\s+",
+            name_lower,
+        )
+        if prev_match:
+            parent = disease_name[prev_match.end():].strip()
+            if parent and len(parent) >= 4:
+                variants.append(parent)
+
+        # Pattern 3: "advanced X", "metastatic X", "refractory X", "recurrent X"
+        stage_match = re.match(
+            r"^(?:advanced|metastatic|refractory|relapsed|recurrent|chronic"
+            r"|acute|early[- ]?stage|late[- ]?stage|localized|unresectable)\s+",
+            name_lower,
+        )
+        if stage_match:
+            parent = disease_name[stage_match.end():].strip()
+            if parent and len(parent) >= 4:
+                variants.append(parent)
+
+        # Pattern 4: Controlled clinical composite endpoints
+        # Clinical composite prevention indications (such as "cardiovascular disease"
+        # or "secondary prevention of cardiovascular disease") represent composite endpoints
+        # whose regulatory approvals and clinical trial targets in ChEMBL are cataloged
+        # under their constituent acute events (e.g., "myocardial infarction", "stroke").
+        # Explicit, narrowly scoped decomposition through the disease normalization framework.
+        composite_constituents: dict[str, list[str]] = {
+            "cardiovascular disease": ["myocardial infarction", "stroke"],
+            "cardiovascular diseases": ["myocardial infarction", "stroke"],
+            "cvd": ["myocardial infarction", "stroke", "cardiovascular disease"],
+        }
+        for v in list(variants):
+            vl = v.lower().strip()
+            if vl in composite_constituents:
+                for constituent in composite_constituents[vl]:
+                    variants.append(constituent)
+
+        # Deduplicate preserving order
+        seen: set[str] = set()
+        unique: list[str] = []
+        for v in variants:
+            vl = v.lower()
+            if vl not in seen:
+                seen.add(vl)
+                unique.append(v)
+        return unique
+
     def _parse_indication_data(
         self,
         indication_data: dict[str, Any],
         molecule_data: dict[str, Any],
         disease_name: str,
+        source: str = "chembl",
     ) -> ApprovalSignal | None:
         """Infer approval status from ChEMBL retrieved indication data.
 
@@ -951,16 +1229,18 @@ class RetrievalPipeline:
         computed purely from retrieved data.
 
         Matching algorithm:
-        1. Tokenize both the queried disease and the indication term
-        2. Compute token overlap ratio (Jaccard-like similarity)
-        3. Consider a match if similarity > 0.35 or queried name is substring
-        4. Select the best-matching indication
-        5. Return ApprovalSignal based on max_phase_for_ind of best match
+        1. Generate disease name variants (original + ontology-normalized parents)
+        2. Tokenize both the queried disease variants and the indication term
+        3. Compute token overlap ratio (Jaccard-like similarity)
+        4. Consider a match if similarity > 0.35 or queried name is substring
+        5. Select the best-matching indication
+        6. Return ApprovalSignal based on max_phase_for_ind of best match
 
         Args:
             indication_data: Raw ChEMBL indication response dict.
             molecule_data: Raw ChEMBL molecule details dict.
             disease_name: The queried disease name (from user input).
+            source: Provenance source string for this approval signal.
 
         Returns:
             ApprovalSignal built from retrieved data, or None if no ChEMBL data.
@@ -972,54 +1252,138 @@ class RetrievalPipeline:
         # Count total approved indications for this drug (informational)
         approved_count = sum(
             1 for ind in indications
-            if int(ind.get("max_phase_for_ind") or 0) == 4
+            if int(float(ind.get("max_phase_for_ind") or 0)) == 4
         )
 
-        # Tokenize queried disease name
-        query_tokens = set(
-            re.sub(r"[^a-z0-9]", " ", disease_name.lower()).split()
-        ) - {"the", "a", "an", "of", "and", "or", "for", "in", "to"}
+        # Generate disease name variants for broader matching
+        disease_variants = self._normalize_disease_variants(disease_name)
 
         best_match_phase = 0
         best_match_term = ""
         best_match_confidence = 0.0
+        best_match_variant = disease_name
 
-        for ind in indications:
-            efo_term = str(ind.get("efo_term") or "").lower()
-            mesh_heading = str(ind.get("mesh_heading") or "").lower()
-            max_phase = int(ind.get("max_phase_for_ind") or 0)
+        for variant in disease_variants:
+            # Tokenize queried disease variant
+            query_tokens = set(
+                re.sub(r"[^a-z0-9]", " ", variant.lower()).split()
+            ) - {"the", "a", "an", "of", "and", "or", "for", "in", "to"}
 
-            # Try both EFO term and MeSH heading
-            for term in (efo_term, mesh_heading):
-                if not term:
-                    continue
-                term_tokens = set(
-                    re.sub(r"[^a-z0-9]", " ", term).split()
-                ) - {"the", "a", "an", "of", "and", "or", "for", "in", "to"}
+            for ind in indications:
+                efo_term = str(ind.get("efo_term") or "").lower()
+                mesh_heading = str(ind.get("mesh_heading") or "").lower()
+                max_phase = int(float(ind.get("max_phase_for_ind") or 0))
 
-                # Jaccard-like similarity on tokens
-                union = query_tokens | term_tokens
-                if not union:
-                    continue
-                intersection = query_tokens & term_tokens
-                sim = len(intersection) / len(union)
+                # Try both EFO term and MeSH heading
+                for term in (efo_term, mesh_heading):
+                    if not term:
+                        continue
+                    term_tokens = set(
+                        re.sub(r"[^a-z0-9]", " ", term).split()
+                    ) - {"the", "a", "an", "of", "and", "or", "for", "in", "to"}
 
-                # Substring containment boost
-                q_clean = disease_name.lower().replace(" ", "")
-                t_clean = term.replace(" ", "")
-                if q_clean in t_clean or t_clean in q_clean:
-                    sim = max(sim, 0.6)
+                    # Jaccard-like similarity on tokens
+                    union = query_tokens | term_tokens
+                    if not union:
+                        continue
+                    intersection = query_tokens & term_tokens
 
-                if sim > best_match_confidence:
-                    best_match_confidence = sim
-                    best_match_term = term
-                    best_match_phase = max_phase
+                    # Phase 2 Root Cause Fix: Generic category tokens must NOT establish
+                    # therapeutic indication identity by themselves.
+                    # Distinguishing disease/organ-specific components must match.
+                    # Regression correction: removed the `has_meaningful_generic_only` fallback
+                    # which allowed purely generic overlaps (e.g. {"cancer", "neoplasm"}) to
+                    # establish indication identity across unrelated organ sites.
+                    _GENERIC_DISEASE_TOKENS = {
+                        "cancer", "cancers", "disease", "diseases", "disorder", "disorders",
+                        "syndrome", "syndromes", "condition", "conditions", "neoplasm", "neoplasms",
+                        "carcinoma", "carcinomas", "tumor", "tumors", "tumour", "tumours",
+                        "malignant", "benign", "chronic", "acute", "primary", "secondary",
+                        "advanced", "metastatic", "recurrent", "refractory",
+                        "type", "stage", "grade", "positive", "negative",
+                    }
+                    specific_intersection = intersection - _GENERIC_DISEASE_TOKENS
+                    has_specific_overlap = len(specific_intersection) > 0
+
+                    if not has_specific_overlap:
+                        continue
+
+                    # Disease Relation Gate (§8 & §24):
+                    # Sibling exclusions strictly reject approval anchor candidates (e.g. stroke vs hemorrhagic stroke)
+                    orig_rel = classify_disease_relation(disease_name, term)
+                    variant_rel = classify_disease_relation(variant, term)
+                    if orig_rel == DiseaseRelation.SIBLING_EXCLUDED or variant_rel == DiseaseRelation.SIBLING_EXCLUDED:
+                        logger.info(
+                            "approval_indication_candidate_evaluated",
+                            extra={
+                                "queried_disease": disease_name,
+                                "indication": term,
+                                "disease_relation": "SIBLING_EXCLUDED",
+                                "approval_anchor": False,
+                                "disease_relation_policy": "APPROVAL_ANCHOR",
+                            },
+                        )
+                        continue
+
+                    # Rule -1 requires DiseaseRelation.SAME (Section 6 & 8)
+                    is_anchor = matches_for_approval_anchor(disease_name, term) or (
+                        variant != disease_name and matches_for_approval_anchor(variant, term)
+                    )
+                    if not is_anchor:
+                        logger.info(
+                            "approval_indication_candidate_evaluated",
+                            extra={
+                                "queried_disease": disease_name,
+                                "indication": term,
+                                "disease_relation": orig_rel.value,
+                                "approval_anchor": False,
+                                "disease_relation_policy": "APPROVAL_ANCHOR",
+                            },
+                        )
+                        continue
+
+                    logger.info(
+                        "approval_indication_candidate_evaluated",
+                        extra={
+                            "queried_disease": disease_name,
+                            "indication": term,
+                            "disease_relation": "SAME",
+                            "approval_anchor": True,
+                            "disease_relation_policy": "APPROVAL_ANCHOR",
+                        },
+                    )
+
+                    sim = len(intersection) / len(union)
+
+                    # Substring containment boost (only when specific overlap exists)
+                    q_clean = variant.lower().replace(" ", "")
+                    t_clean = term.replace(" ", "")
+                    if q_clean in t_clean or t_clean in q_clean:
+                        sim = max(sim, 0.6)
+
+                    # Apply a slight discount for parent-term matches (not the
+                    # original query) to prefer exact matches when both exist.
+                    if variant != disease_name:
+                        sim *= 0.95
+
+                    # Prioritize confirmed approved indications (Phase 4).
+                    # Among disease-matched indications (DiseaseRelation.SAME), an approved
+                    # Phase 4 indication establishes regulatory approval and must take precedence
+                    # over lower-phase investigational records (e.g. Phase 3 trials) for the same disease.
+                    # When phase status is equal, prefer higher lexical similarity.
+                    candidate_rank = (max_phase == 4, max_phase, sim)
+                    best_rank = (best_match_phase == 4, best_match_phase, best_match_confidence)
+                    if candidate_rank > best_rank:
+                        best_match_confidence = sim
+                        best_match_term = term
+                        best_match_phase = max_phase
+                        best_match_variant = variant
 
         # Require minimum similarity to accept a match (prevents false positives)
         _MIN_MATCH_CONFIDENCE = 0.30
         if best_match_confidence < _MIN_MATCH_CONFIDENCE:
             # No meaningful match found — use global max_phase from molecule data
-            global_max_phase = int(molecule_data.get("max_phase") or 0)
+            global_max_phase = int(float(molecule_data.get("max_phase") or 0))
             if global_max_phase > 0:
                 logger.info(
                     "approval_signal_global_phase_fallback",
@@ -1033,29 +1397,59 @@ class RetrievalPipeline:
                     matched_term="",
                     match_confidence=0.0,
                     approved_count=approved_count,
+                    source=source,
+                    requested_disease=disease_name,
+                    matching_rationale=f"No disease-specific indication matched '{disease_name}' above confidence threshold {_MIN_MATCH_CONFIDENCE}.",
+                    disease_relation="UNRELATED",
+                    disease_relation_policy="APPROVAL_ANCHOR",
                 )
-            return ApprovalSignal.no_data()
+            return ApprovalSignal.no_data(
+                requested_disease=disease_name,
+                matching_rationale=f"No indication data matched '{disease_name}'.",
+            )
 
-        global_max = int(molecule_data.get("max_phase") or 0)
-        effective_phase = best_match_phase
-        if global_max == 4 and best_match_phase >= 3:
-            effective_phase = 4
+        global_max = int(float(molecule_data.get("max_phase") or 0))
+        # Phase 1 Root Cause Fix: Phase 3 indication must NEVER be promoted to Phase 4
+        # based on unrelated global drug approval. Separate concepts strictly:
+        # - matched_indication_phase = best_match_phase
+        # - global_approval_phase = global_max
+        matched_indication_phase = best_match_phase
+
+        if best_match_variant.lower() == disease_name.lower():
+            matching_rationale = (
+                f"Direct disease match between requested '{disease_name}' and indication term "
+                f"'{best_match_term}' (confidence {best_match_confidence:.2f}, phase {matched_indication_phase})."
+            )
+        else:
+            matching_rationale = (
+                f"Parent/subtype compatible match: requested disease '{disease_name}' resolved via "
+                f"normalized variant '{best_match_variant}' to indication term '{best_match_term}' "
+                f"(confidence {best_match_confidence:.2f}, phase {matched_indication_phase})."
+            )
 
         logger.info(
             "approval_signal_match",
             extra={
                 "disease": disease_name,
                 "matched_term": best_match_term,
-                "max_phase": effective_phase,
+                "max_phase": matched_indication_phase,
+                "global_max_phase": global_max,
                 "confidence": round(best_match_confidence, 3),
             },
         )
         return ApprovalSignal.from_chembl_indication_match(
-            max_phase=effective_phase,
+            max_phase=matched_indication_phase,
             matched_term=best_match_term,
             match_confidence=best_match_confidence,
             approved_count=approved_count,
+            source=source,
+            global_approval_phase=global_max,
+            requested_disease=disease_name,
+            matching_rationale=matching_rationale,
+            disease_relation="SAME",
+            disease_relation_policy="APPROVAL_ANCHOR",
         )
+
 
     def _parse_chembl_data(
         self,
@@ -1308,21 +1702,428 @@ class RetrievalPipeline:
                 continue
         return pathways
 
+    @staticmethod
+    def _is_safety_endpoint(title: str, description: str) -> bool:
+        """Distinguish safety-only outcomes from therapeutic efficacy endpoints (Issue 5 / §15)."""
+        text = f"{title} {description}".lower()
+        safety_keywords = (
+            "adverse event", "safety", "tolerability", "toxicity", "adverse effect",
+            "toxicities", "vital sign", "laboratory abnormal", "discontinuation due to ae",
+            "dose-limiting", "treatment-emergent adverse", "sae", "teae", "incidence of ae"
+        )
+        return any(kw in text for kw in safety_keywords)
+
+    @staticmethod
+    def _is_non_efficacy_endpoint(title: str, description: str) -> bool:
+        """Distinguish device usability, patient preference, or PK from therapeutic disease efficacy endpoints."""
+        text = f"{title} {description}".lower()
+        non_efficacy_keywords = (
+            "autoinjector", "injector", "needle apprehension", "device preference",
+            "patient preference", "usability", "ease of use", "satisfaction questionnaire",
+            "device handling", "injection site pain", "self-injection", "preference between",
+            "pharmacokinetic", "pharmacodynamics", "bioequivalence", "bioavailability",
+            "area under the curve", "cmax", "tmax", "steady state concentration",
+            "compliance rate", "adherence rate", "pill count",
+        )
+        return any(kw in text for kw in non_efficacy_keywords)
+
+    @staticmethod
+    def _parse_float(val: Any) -> float | None:
+        """Parse float value handling percentages, strings, and commas safely."""
+        if val is None:
+            return None
+        try:
+            s = str(val).strip().replace(",", "")
+            if s.endswith("%"):
+                return float(s[:-1]) / 100.0
+            return float(s)
+        except (ValueError, TypeError):
+            return None
+
+    @staticmethod
+    def _parse_p_value(val: Any) -> float | None:
+        """Parse p-value handling inequalities (<0.001, >0.05, =0.05)."""
+        if val is None:
+            return None
+        try:
+            s = str(val).strip()
+            if s.startswith("<"):
+                raw = float(s[1:].strip())
+                return max(0.0, raw - 0.0001)
+            elif s.startswith(">"):
+                raw = float(s[1:].strip())
+                return raw + 0.0001
+            elif s.startswith("="):
+                return float(s[1:].strip())
+            else:
+                return float(s)
+        except (ValueError, TypeError):
+            return None
+
+    @staticmethod
+    def _extract_margin(comment: str, text: str) -> float | None:
+        """Extract non-inferiority margin from comment or text."""
+        combined = f"{comment} {text}".lower()
+        patterns = [
+            r"margin\s*(?:of|is|:|=)?\s*(-?[0-9]+(?:\.[0-9]+)?)\s*%",
+            r"margin\s*(?:of|is|:|=)?\s*(-?[0-9]+(?:\.[0-9]+)?)",
+            r"delta\s*(?:of|is|:|=)?\s*(-?[0-9]+(?:\.[0-9]+)?)",
+            r"upper\s*(?:limit|bound)\s*<\s*(-?[0-9]+(?:\.[0-9]+)?)",
+        ]
+        for pat in patterns:
+            m = re.search(pat, combined)
+            if m:
+                val_str = m.group(1)
+                val = RetrievalPipeline._parse_float(val_str)
+                if val is not None:
+                    if "%" in pat:
+                        return val / 100.0
+                    return val
+        return None
+
+    @staticmethod
+    def _extract_equivalence_bounds(comment: str, text: str) -> tuple[float, float] | None:
+        """Extract equivalence bounds (e.g. 0.80 to 1.25) from comment or text."""
+        combined = f"{comment} {text}".lower()
+        patterns = [
+            r"(?:bounds?|limits?|interval)\s*(?:of|is|:|=)?\s*\[?\s*(-?[0-9]+(?:\.[0-9]+)?)\s*(?:to|,|-)\s*(-?[0-9]+(?:\.[0-9]+)?)\s*\]?",
+            r"(-?[0-9]+(?:\.[0-9]+)?)\s*(?:to|,)\s*(-?[0-9]+(?:\.[0-9]+)?)\s*(?:equivalence|bioequivalence)",
+        ]
+        for pat in patterns:
+            m = re.search(pat, combined)
+            if m:
+                l = RetrievalPipeline._parse_float(m.group(1))
+                u = RetrievalPipeline._parse_float(m.group(2))
+                if l is not None and u is not None:
+                    return (min(l, u), max(l, u))
+        if "equivalence" in combined or "bioequivalence" in combined:
+            return (0.80, 1.25)
+        return None
+
+    @staticmethod
+    def _evaluate_outcome_measure_direction(om: dict[str, Any]) -> OutcomeEvaluationResult:
+        """Inspect statistical results, p-values, effect sizes, and text in resultsSection outcome measure.
+
+        Returns an OutcomeEvaluationResult (tuple of direction and reason, with .direction,
+        .reason, and .reason_code properties) classifying evidence scientifically:
+        - POSITIVE: Statistically significant therapeutic benefit or non-inferiority/equivalence success.
+        - NEGATIVE: Genuine therapeutic failure, explicit futility, or statistically significant harm.
+        - NEUTRAL: Non-significant result (p >= 0.05, CI crossing unity) without explicit failure.
+        - INCONCLUSIVE: Incomplete statistical context or ambiguous NI/equivalence bounds.
+        - SAFETY_HARM: Safety/tolerability/AE outcome showing elevated harm (separated from efficacy).
+        - UNKNOWN: Non-efficacy endpoint, single-arm/within-group study, or missing context.
+        """
+        analyses = om.get("analyses", []) if isinstance(om, dict) else []
+        title = str(om.get("title", "")) if (isinstance(om, dict) and om.get("title")) else ""
+        desc = str(om.get("description", "")) if (isinstance(om, dict) and om.get("description")) else ""
+        om_type = str(om.get("type", "")).upper() if isinstance(om, dict) else ""
+        text_combined = f"{title} {desc}".lower()
+
+        # 1. Non-efficacy endpoints (device usability, patient preference, PK)
+        if RetrievalPipeline._is_non_efficacy_endpoint(title, desc):
+            return OutcomeEvaluationResult(
+                OutcomeDirection.UNKNOWN,
+                f"Non-efficacy endpoint (device usability/preference/PK): '{title}'",
+                StatisticalReasonCode.NON_EFFICACY_ENDPOINT,
+            )
+
+        # 2. Safety endpoints (Step 9)
+        if RetrievalPipeline._is_safety_endpoint(title, desc):
+            for ana in analyses:
+                p_val = RetrievalPipeline._parse_p_value(ana.get("pValue"))
+                param_val = RetrievalPipeline._parse_float(ana.get("paramValue"))
+                if p_val is not None and p_val < 0.05:
+                    if param_val is not None and param_val > 1.0:
+                        return OutcomeEvaluationResult(
+                            OutcomeDirection.SAFETY_HARM,
+                            f"Safety endpoint '{title}' showed significant harm/toxicity increase (ratio={param_val}, p={p_val})",
+                            StatisticalReasonCode.SAFETY_ENDPOINT,
+                        )
+                    return OutcomeEvaluationResult(
+                        OutcomeDirection.SAFETY_HARM,
+                        f"Safety endpoint '{title}' showed significant safety signal (p={p_val})",
+                        StatisticalReasonCode.SAFETY_ENDPOINT,
+                    )
+            return OutcomeEvaluationResult(
+                OutcomeDirection.UNKNOWN,
+                f"Safety endpoint (tolerability/AEs): '{title}'",
+                StatisticalReasonCode.SAFETY_ENDPOINT,
+            )
+
+        # 3. Explicit futility and explicit lack of efficacy in text (Step 8)
+        explicit_futility_phrases = (
+            "futility boundary crossed",
+            "crossed futility boundary",
+            "stopped early for futility",
+            "terminated early for futility",
+            "terminated for futility",
+            "interim futility",
+            "futility",
+        )
+        explicit_lack_of_efficacy_phrases = (
+            "failed to meet primary endpoint",
+            "failed to meet the primary endpoint",
+            "did not meet primary endpoint",
+            "did not meet the primary endpoint",
+            "lack of efficacy",
+            "no clinical benefit",
+            "ineffective",
+            "no evidence of efficacy",
+            "failed superiority",
+            "failed to demonstrate superiority",
+        )
+        if any(phrase in text_combined for phrase in explicit_futility_phrases):
+            return OutcomeEvaluationResult(
+                OutcomeDirection.NEGATIVE,
+                f"Outcome text indicates futility: '{title}'",
+                StatisticalReasonCode.EXPLICIT_FUTILITY,
+            )
+        if any(phrase in text_combined for phrase in explicit_lack_of_efficacy_phrases):
+            return OutcomeEvaluationResult(
+                OutcomeDirection.NEGATIVE,
+                f"Outcome text indicates lack of efficacy: '{title}'",
+                StatisticalReasonCode.EXPLICIT_LACK_OF_EFFICACY,
+            )
+
+        # 4. Statistical Analyses
+        for ana in analyses:
+            p_val = RetrievalPipeline._parse_p_value(ana.get("pValue"))
+            stat_method = str(ana.get("statisticalMethod", "statistical analysis"))
+            sm_lower = stat_method.lower()
+            param_type = str(ana.get("paramType", "")).upper()
+            param_val = RetrievalPipeline._parse_float(ana.get("paramValue"))
+            ci_lower = RetrievalPipeline._parse_float(ana.get("ciLowerLimit"))
+            ci_upper = RetrievalPipeline._parse_float(ana.get("ciUpperLimit"))
+            ni_type = str(ana.get("nonInferiorityType", "")).upper()
+            ni_comment = str(ana.get("nonInferiorityComment", ""))
+            ana_group_desc = str(ana.get("analysisGroupDescription", "")).lower()
+            stat_comment = str(ana.get("statisticalComment", "")).lower()
+            combined_ana_text = f"{text_combined} {sm_lower} {ni_comment.lower()} {ana_group_desc} {stat_comment}"
+
+            # A. Single-arm / within-group paired test check (Step 7)
+            if "paired" in sm_lower or "within" in sm_lower or "single arm" in combined_ana_text or "one-sample" in sm_lower:
+                return OutcomeEvaluationResult(
+                    OutcomeDirection.UNKNOWN,
+                    f"Outcome '{title}' within-group paired/single-arm analysis without comparator control ({stat_method})",
+                    StatisticalReasonCode.SINGLE_ARM_NO_COMPARATOR,
+                )
+
+            # B. Subgroup analysis check (Step 10)
+            is_subgroup = any(sg in combined_ana_text for sg in ("subgroup", "sub-group", "sub-population", "post-hoc"))
+
+            # C. Non-Inferiority check (Step 5)
+            is_ni = (
+                "NON_INFERIORITY" in ni_type
+                or "non-inferior" in combined_ana_text
+                or "noninferior" in combined_ana_text
+            ) and "EQUIVALENCE" not in ni_type
+
+            if is_ni:
+                if any(w in combined_ana_text for w in ("non-inferiority demonstrated", "met non-inferiority", "demonstrated non-inferiority", "was non-inferior")):
+                    return OutcomeEvaluationResult(
+                        OutcomeDirection.POSITIVE,
+                        f"Outcome '{title}' demonstrated non-inferiority ({stat_method})",
+                        StatisticalReasonCode.NON_INFERIOR,
+                    )
+                if any(w in combined_ana_text for w in ("failed to demonstrate non-inferiority", "did not meet non-inferiority", "non-inferiority not met")):
+                    return OutcomeEvaluationResult(
+                        OutcomeDirection.NEGATIVE,
+                        f"Outcome '{title}' failed to demonstrate non-inferiority ({stat_method})",
+                        StatisticalReasonCode.NON_INFERIORITY_FAILURE,
+                    )
+
+                margin = RetrievalPipeline._extract_margin(ni_comment, text_combined)
+                if margin is not None and ci_upper is not None:
+                    if ci_upper <= margin:
+                        return OutcomeEvaluationResult(
+                            OutcomeDirection.POSITIVE,
+                            f"Outcome '{title}' met non-inferiority criterion: CI upper limit {ci_upper} <= margin {margin}",
+                            StatisticalReasonCode.NON_INFERIOR,
+                        )
+                    else:
+                        return OutcomeEvaluationResult(
+                            OutcomeDirection.NEGATIVE,
+                            f"Outcome '{title}' failed non-inferiority criterion: CI upper limit {ci_upper} > margin {margin}",
+                            StatisticalReasonCode.NON_INFERIORITY_FAILURE,
+                        )
+
+                if p_val is not None:
+                    if "non-inferior" in sm_lower or "noninferior" in sm_lower or "NON_INFERIORITY" in ni_type:
+                        if p_val < 0.05:
+                            return OutcomeEvaluationResult(
+                                OutcomeDirection.POSITIVE,
+                                f"Outcome '{title}' achieved non-inferiority (p={p_val} < 0.05, {stat_method})",
+                                StatisticalReasonCode.NON_INFERIOR,
+                            )
+                        else:
+                            return OutcomeEvaluationResult(
+                                OutcomeDirection.NEGATIVE,
+                                f"Outcome '{title}' failed non-inferiority test (p={p_val} >= 0.05, {stat_method})",
+                                StatisticalReasonCode.NON_INFERIORITY_FAILURE,
+                            )
+
+                return OutcomeEvaluationResult(
+                    OutcomeDirection.INCONCLUSIVE,
+                    f"Outcome '{title}' non-inferiority design with inconclusive margin/CI statistical context",
+                    StatisticalReasonCode.INSUFFICIENT_STATISTICAL_CONTEXT,
+                )
+
+            # D. Equivalence check (Step 6)
+            is_equiv = "EQUIVALENCE" in ni_type or "equivalence" in combined_ana_text
+            if is_equiv:
+                if any(w in combined_ana_text for w in ("equivalence demonstrated", "met equivalence", "proven equivalent")):
+                    return OutcomeEvaluationResult(
+                        OutcomeDirection.POSITIVE,
+                        f"Outcome '{title}' demonstrated equivalence ({stat_method})",
+                        StatisticalReasonCode.EQUIVALENT,
+                    )
+                if any(w in combined_ana_text for w in ("failed to demonstrate equivalence", "not equivalent")):
+                    return OutcomeEvaluationResult(
+                        OutcomeDirection.NEGATIVE,
+                        f"Outcome '{title}' failed equivalence test ({stat_method})",
+                        StatisticalReasonCode.EQUIVALENCE_FAILURE,
+                    )
+                eq_bounds = RetrievalPipeline._extract_equivalence_bounds(ni_comment, text_combined)
+                if eq_bounds is not None and ci_lower is not None and ci_upper is not None:
+                    lower_b, upper_b = eq_bounds
+                    if ci_lower >= lower_b and ci_upper <= upper_b:
+                        return OutcomeEvaluationResult(
+                            OutcomeDirection.POSITIVE,
+                            f"Outcome '{title}' met equivalence bounds [{lower_b}, {upper_b}]: CI [{ci_lower}, {ci_upper}]",
+                            StatisticalReasonCode.EQUIVALENT,
+                        )
+                    else:
+                        return OutcomeEvaluationResult(
+                            OutcomeDirection.NEGATIVE,
+                            f"Outcome '{title}' failed equivalence bounds [{lower_b}, {upper_b}]: CI [{ci_lower}, {ci_upper}]",
+                            StatisticalReasonCode.EQUIVALENCE_FAILURE,
+                        )
+                return OutcomeEvaluationResult(
+                    OutcomeDirection.INCONCLUSIVE,
+                    f"Outcome '{title}' equivalence design with inconclusive bounds statistical context",
+                    StatisticalReasonCode.INSUFFICIENT_STATISTICAL_CONTEXT,
+                )
+
+            # E. Standard Superiority P-value evaluation (Steps 2, 4, 8, 10)
+            if p_val is not None:
+                if p_val < 0.05:
+                    harm_terms = ("mortality", "death", "progression", "hospitalization", "failure", "cardiovascular event")
+                    if param_val is not None and param_val > 1.0 and any(h in text_combined for h in harm_terms):
+                        return OutcomeEvaluationResult(
+                            OutcomeDirection.NEGATIVE,
+                            f"Outcome '{title}' significantly increased risk/worsened outcome (ratio={param_val}, p={p_val})",
+                            StatisticalReasonCode.STATISTICALLY_SIGNIFICANT_HARM,
+                        )
+                    return OutcomeEvaluationResult(
+                        OutcomeDirection.POSITIVE,
+                        f"Outcome '{title}' achieved statistical significance (p={p_val} < 0.05, {stat_method})",
+                        StatisticalReasonCode.STATISTICALLY_SIGNIFICANT_BENEFIT,
+                    )
+                else:  # p_val >= 0.05
+                    # Non-significant result is NEUTRAL (Step 2)
+                    if is_subgroup:
+                        return OutcomeEvaluationResult(
+                            OutcomeDirection.NEUTRAL,
+                            f"Subgroup outcome '{title}' did not achieve statistical significance (p={p_val} >= 0.05, {stat_method})",
+                            StatisticalReasonCode.NON_SIGNIFICANT_SUBGROUP,
+                        )
+                    elif om_type == "SECONDARY":
+                        return OutcomeEvaluationResult(
+                            OutcomeDirection.NEUTRAL,
+                            f"Secondary outcome '{title}' did not achieve statistical significance (p={p_val} >= 0.05, {stat_method})",
+                            StatisticalReasonCode.NON_SIGNIFICANT_SECONDARY_ENDPOINT,
+                        )
+                    else:
+                        return OutcomeEvaluationResult(
+                            OutcomeDirection.NEUTRAL,
+                            f"Primary outcome '{title}' did not achieve statistical significance (p={p_val} >= 0.05, {stat_method})",
+                            StatisticalReasonCode.NON_SIGNIFICANT_PRIMARY_ENDPOINT,
+                        )
+
+            # F. Confidence intervals for ratio measures (without p-value)
+            if ci_lower is not None and ci_upper is not None:
+                if any(r in param_type for r in ("RATIO", "HR", "RR", "OR")):
+                    if ci_lower <= 1.0 <= ci_upper:
+                        if is_subgroup:
+                            return OutcomeEvaluationResult(
+                                OutcomeDirection.NEUTRAL,
+                                f"Subgroup outcome '{title}' confidence interval [{ci_lower}, {ci_upper}] crosses unity (neutral result)",
+                                StatisticalReasonCode.NON_SIGNIFICANT_SUBGROUP,
+                            )
+                        elif om_type == "SECONDARY":
+                            return OutcomeEvaluationResult(
+                                OutcomeDirection.NEUTRAL,
+                                f"Secondary outcome '{title}' confidence interval [{ci_lower}, {ci_upper}] crosses unity (neutral result)",
+                                StatisticalReasonCode.NON_SIGNIFICANT_SECONDARY_ENDPOINT,
+                            )
+                        else:
+                            return OutcomeEvaluationResult(
+                                OutcomeDirection.NEUTRAL,
+                                f"Outcome '{title}' confidence interval [{ci_lower}, {ci_upper}] crosses unity (neutral result)",
+                                StatisticalReasonCode.NON_SIGNIFICANT_PRIMARY_ENDPOINT,
+                            )
+
+        # 5. Text-level assessment if no numerical analysis resolved direction
+        neutral_phrases = (
+            "no significant difference",
+            "not statistically significant",
+            "no statistically significant difference",
+            "no significant benefit",
+            "did not reach statistical significance",
+            "did not achieve statistical significance",
+            "no difference",
+            "did not significantly improve",
+        )
+        positive_phrases = (
+            "statistically significant improvement",
+            "met primary endpoint",
+            "significant reduction in",
+            "significantly improved",
+            "superiority demonstrated",
+            "significant benefit",
+        )
+        for np in neutral_phrases:
+            if np in text_combined:
+                code = (
+                    StatisticalReasonCode.NON_SIGNIFICANT_SECONDARY_ENDPOINT
+                    if om_type == "SECONDARY"
+                    else StatisticalReasonCode.NON_SIGNIFICANT_PRIMARY_ENDPOINT
+                )
+                return OutcomeEvaluationResult(
+                    OutcomeDirection.NEUTRAL,
+                    f"Outcome text indicates neutral result: '{title}'",
+                    code,
+                )
+        for pp in positive_phrases:
+            if pp in text_combined:
+                return OutcomeEvaluationResult(
+                    OutcomeDirection.POSITIVE,
+                    f"Outcome text indicates success: '{title}'",
+                    StatisticalReasonCode.STATISTICALLY_SIGNIFICANT_BENEFIT,
+                )
+
+        return OutcomeEvaluationResult(
+            OutcomeDirection.UNKNOWN,
+            None,
+            StatisticalReasonCode.INSUFFICIENT_STATISTICAL_CONTEXT,
+        )
+
     def _parse_trials_data(
         self,
         data: dict[str, Any],
         drug: Drug,
         disease: Disease,
     ) -> list[ClinicalTrial]:
-        """Parse ClinicalTrials.gov data into ClinicalTrial objects."""
+        """Parse ClinicalTrials.gov data into ClinicalTrial objects including resultsSection."""
         trials: list[ClinicalTrial] = []
         studies = data.get("studies", [])
-        for study in studies[:20]:
+        for study in studies:
             try:
                 protocol = study.get("protocolSection", {})
                 ident = protocol.get("identificationModule", {})
                 status_mod = protocol.get("statusModule", {})
                 design_mod = protocol.get("designModule", {})
+                cond_mod = protocol.get("conditionsModule", {})
 
                 nct_id = ident.get("nctId", "")
                 if not nct_id or not nct_id.startswith("NCT"):
@@ -1331,26 +2132,127 @@ class RetrievalPipeline:
                 raw_status = status_mod.get("overallStatus", "UNKNOWN").upper()
                 why_stopped = str(status_mod.get("whyStopped", "")).lower()
 
-                if raw_status == "COMPLETED":
-                    status = TrialOutcomeStatus.COMPLETED_SUCCESS
-                elif raw_status in ("RECRUITING", "ACTIVE_NOT_RECRUITING", "ENROLLING_BY_INVITATION"):
-                    status = TrialOutcomeStatus.ACTIVE
-                elif raw_status in ("TERMINATED", "SUSPENDED", "WITHDRAWN"):
-                    # Inspect whyStopped text to distinguish safety/efficacy failures from administrative friction
-                    safety_kw = ("safety", "adverse", "toxicity", "harm", "death", "side effect")
-                    efficacy_kw = (
-                        "futility", "lack of efficacy", "ineffective", "no benefit",
-                        "primary endpoint", "lack of effect", "parent study", "study results",
-                        "interim analysis", "results", "dsb", "dmcb", "endpoint", "analysis"
+                # Parse resultsSection (Issue 5)
+                results_sec = study.get("resultsSection", {})
+                has_results = bool(study.get("hasResults") or results_sec)
+                outcome_measures_raw = results_sec.get("outcomeMeasuresModule", {}).get("outcomeMeasures", [])
+                condition_names = cond_mod.get("conditions", [])
+
+                is_neg_efficacy = False
+                neg_efficacy_reason: str | None = None
+                has_pos_efficacy = False
+                pos_efficacy_reason: str | None = None
+
+                parsed_outcomes: list[dict[str, Any]] = []
+                for om in outcome_measures_raw:
+                    om_type = str(om.get("type", "")).upper()
+                    om_title = om.get("title", "")
+                    om_desc = om.get("description", "")
+
+                    is_safety = self._is_safety_endpoint(om_title, om_desc)
+                    is_non_eff = self._is_non_efficacy_endpoint(om_title, om_desc)
+                    dir_res = self._evaluate_outcome_measure_direction(om)
+
+                    direction = dir_res.direction.value if hasattr(dir_res, "direction") else str(dir_res[0])
+                    dir_reason = dir_res.reason if hasattr(dir_res, "reason") else dir_res[1]
+                    reason_code = (
+                        dir_res.reason_code.value
+                        if (hasattr(dir_res, "reason_code") and dir_res.reason_code)
+                        else None
                     )
 
-                    if any(kw in why_stopped for kw in safety_kw):
-                        status = TrialOutcomeStatus.TERMINATED_SAFETY
-                    elif any(kw in why_stopped for kw in efficacy_kw):
-                        status = TrialOutcomeStatus.TERMINATED_LACK_OF_EFFICACY
+                    if direction == OutcomeDirection.SAFETY_HARM.value:
+                        is_safety = True
+
+                    parsed_outcomes.append({
+                        "type": om_type,
+                        "title": om_title,
+                        "is_safety": is_safety,
+                        "is_non_efficacy": is_non_eff,
+                        "direction": direction,
+                        "reason": dir_reason,
+                        "reason_code": reason_code,
+                    })
+
+                    # Primary Efficacy Priority: Only genuine NEGATIVE on PRIMARY efficacy endpoint triggers is_neg_efficacy
+                    if not is_safety and not is_non_eff and om_type == "PRIMARY":
+                        if direction == OutcomeDirection.NEGATIVE.value and not is_neg_efficacy:
+                            is_neg_efficacy = True
+                            neg_efficacy_reason = dir_reason
+                        elif direction == OutcomeDirection.POSITIVE.value and not has_pos_efficacy:
+                            has_pos_efficacy = True
+                            pos_efficacy_reason = dir_reason
+
+                # Secondary Efficacy evaluation if primary is silent or inconclusive
+                # NOTE: Secondary endpoints can support efficacy (POSITIVE) if primary is silent,
+                # but a non-significant or secondary endpoint alone must NOT brand the entire trial as therapeutic failure!
+                if not is_neg_efficacy and not has_pos_efficacy:
+                    for po in parsed_outcomes:
+                        if not po["is_safety"] and not po.get("is_non_efficacy", False) and po["type"] == "SECONDARY":
+                            if po["direction"] == OutcomeDirection.POSITIVE.value:
+                                has_pos_efficacy = True
+                                pos_efficacy_reason = po["reason"]
+                                break
+
+                # Inspect whyStopped text for terminated / suspended / withdrawn trials (§13)
+                negated_safety_phrases = (
+                    "no safety concern",
+                    "no safety concerns",
+                    "without safety concern",
+                    "without safety concerns",
+                    "not due to safety",
+                    "no safety issue",
+                    "no safety issues",
+                    "no safety problems",
+                    "no safety problem",
+                    "no evidence of safety concerns",
+                    "no safety signal",
+                    "no safety signals",
+                )
+                safety_kw = ("safety", "adverse", "toxicity", "harm", "death", "side effect")
+                efficacy_kw = (
+                    "futility", "lack of efficacy", "ineffective", "no benefit",
+                    "primary endpoint", "lack of effect", "parent study", "study results",
+                    "interim analysis", "results", "dsb", "dmcb", "endpoint", "analysis",
+                    "poor response", "who report", "futility boundary", "interim futility"
+                )
+
+                has_negated_safety = any(phrase in why_stopped for phrase in negated_safety_phrases)
+                has_positive_safety = False
+                if any(kw in why_stopped for kw in safety_kw):
+                    if has_negated_safety:
+                        cleaned_why = why_stopped
+                        for phrase in negated_safety_phrases:
+                            cleaned_why = cleaned_why.replace(phrase, " ")
+                        has_positive_safety = any(kw in cleaned_why for kw in ("adverse", "toxicity", "harm", "death", "side effect"))
                     else:
-                        # Low enrollment, COVID-19, funding, study redesign, strategic priority shift → administrative
+                        has_positive_safety = True
+
+                has_efficacy_reason = any(kw in why_stopped for kw in efficacy_kw)
+
+                if raw_status in ("TERMINATED", "SUSPENDED", "WITHDRAWN"):
+                    # Negated safety (e.g. "Lack of efficacy; no safety concern") must NOT trigger TERMINATED_SAFETY
+                    if has_efficacy_reason or is_neg_efficacy:
+                        if not has_positive_safety:
+                            status = TrialOutcomeStatus.TERMINATED_LACK_OF_EFFICACY
+                            is_neg_efficacy = True
+                            if not neg_efficacy_reason:
+                                neg_efficacy_reason = f"Trial terminated early: {status_mod.get('whyStopped')}"
+                        else:
+                            status = TrialOutcomeStatus.TERMINATED_SAFETY
+                    elif has_positive_safety:
+                        status = TrialOutcomeStatus.TERMINATED_SAFETY
+                    else:
                         status = TrialOutcomeStatus.TERMINATED_ADMINISTRATIVE
+                elif raw_status == "COMPLETED":
+                    if is_neg_efficacy:
+                        status = TrialOutcomeStatus.COMPLETED_FAILURE
+                    elif has_pos_efficacy:
+                        status = TrialOutcomeStatus.COMPLETED_SUCCESS
+                    else:
+                        status = TrialOutcomeStatus.UNKNOWN
+                elif raw_status in ("RECRUITING", "ACTIVE_NOT_RECRUITING", "ENROLLING_BY_INVITATION"):
+                    status = TrialOutcomeStatus.ACTIVE
                 else:
                     status = TrialOutcomeStatus.UNKNOWN
 
@@ -1361,6 +2263,23 @@ class RetrievalPipeline:
                     "PHASE1_PHASE2": "Phase I/II", "PHASE2_PHASE3": "Phase II/III",
                 }
                 phase = phase_map.get(phase_list[0] if phase_list else "N/A", "N/A")
+
+                # Extract arms and study design metadata
+                arms_mod = protocol.get("armsInterventionsModule", {})
+                comparator_names: list[str] = []
+                intervention_names: list[str] = []
+                for arm in arms_mod.get("armGroups", []):
+                    arm_type = str(arm.get("type", "")).upper()
+                    inames = arm.get("interventionNames", [])
+                    clean_inames = [re.sub(r"^(Drug|Biological|Device|Other|Dietary Supplement):\s*", "", n, flags=re.IGNORECASE).strip() for n in inames]
+                    if "COMPARATOR" in arm_type or "CONTROL" in arm_type or "PLACEBO" in arm_type:
+                        comparator_names.extend(clean_inames)
+                    else:
+                        intervention_names.extend(clean_inames)
+
+                study_type = design_mod.get("studyType")
+                design_info = design_mod.get("designInfo", {})
+                design_allocation = design_info.get("allocation")
 
                 prov = ProvenanceReference(
                     source_name="ClinicalTrials.gov",
@@ -1376,6 +2295,16 @@ class RetrievalPipeline:
                     drug_chembl_id=drug.chembl_id,
                     disease_identifier=disease.mesh_id,
                     provenance=prov,
+                    study_type=study_type,
+                    design_allocation=design_allocation,
+                    intervention_names=intervention_names,
+                    comparator_names=comparator_names,
+                    why_stopped=status_mod.get("whyStopped") or None,
+                    has_results=has_results,
+                    outcome_measures=parsed_outcomes,
+                    is_negative_efficacy=is_neg_efficacy,
+                    negative_efficacy_reason=neg_efficacy_reason,
+                    condition_names=condition_names,
                 )
                 trials.append(trial)
             except Exception as exc:

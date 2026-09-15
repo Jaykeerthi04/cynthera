@@ -34,6 +34,7 @@ from backend.core.value_objects.therapeutic_direction_evidence import (
 )
 from backend.reasoning.directional.chembl_polarity import CHEMBL_POLARITY_MAP
 from backend.reasoning.normalization.biological_identifier_resolver import BiologicalIdentifierResolver
+from backend.core.domain.evidence_weight_policy import EvidenceWeightPolicy, WeightMode
 
 logger = logging.getLogger(__name__)
 
@@ -368,12 +369,15 @@ class TherapeuticAlignmentEngine:
         self,
         package: RetrievalPackage,
         resolver: BiologicalIdentifierResolver | None = None,
+        policy: EvidenceWeightPolicy | None = None,
     ) -> TherapeuticAlignmentReport:
-        """Run complete Phase 4D Therapeutic Alignment on a RetrievalPackage.
+        """Run complete Phase 4D/5.7 Therapeutic Alignment on a RetrievalPackage.
 
         Args:
             package: Sealed RetrievalPackage.
             resolver: BiologicalIdentifierResolver.
+            policy: Optional EvidenceWeightPolicy. Defaults to EQUAL_VOTE (production default).
+                    GROUNDING_WEIGHTED mode can be selected for evaluation or dev analysis.
 
         Returns:
             TherapeuticAlignmentReport domain model.
@@ -413,6 +417,8 @@ class TherapeuticAlignmentEngine:
         primary_alignments: list[TargetTherapeuticAlignment] = []
         secondary_alignments: list[TargetTherapeuticAlignment] = []
 
+        is_weighted_mode = policy is not None and policy.mode == WeightMode.GROUNDING_WEIGHTED
+
         for tid in all_target_ids:
             is_primary = tid in drug_target_actions
             drug_action, target_obj, uni = drug_target_actions.get(
@@ -428,14 +434,25 @@ class TherapeuticAlignmentEngine:
                     tname = p.name
                     break
 
-            alignment = self.align_target(
-                target_id=tid,
-                drug_action=drug_action,
-                evidence_records=recs,
-                target_name=tname,
-                is_primary=is_primary,
-                is_drugmechdb_validated=dm_validated,
-            )
+            if is_weighted_mode and policy is not None:
+                alignment = self.weighted_align_target(
+                    target_id=tid,
+                    drug_action=drug_action,
+                    evidence_records=recs,
+                    weight_config=policy.to_weight_config(),
+                    target_name=tname,
+                    is_primary=is_primary,
+                    is_drugmechdb_validated=dm_validated,
+                )
+            else:
+                alignment = self.align_target(
+                    target_id=tid,
+                    drug_action=drug_action,
+                    evidence_records=recs,
+                    target_name=tname,
+                    is_primary=is_primary,
+                    is_drugmechdb_validated=dm_validated,
+                )
 
             target_alignments.append(alignment)
             if is_primary:
@@ -609,14 +626,19 @@ class TherapeuticAlignmentEngine:
                 f"(support={support_weight:.2f}, opposition={opposition_weight:.2f}) for {target_id}."
             )
         elif support_weight > 0 and opposition_weight > 0:
-            # Both sides have weight — check for strong conflict
-            if support_weight >= min_w and opposition_weight >= min_w:
-                # Strong conflict: both sides have substantial grounded evidence
+            # Both sides have weight — strong conflict requires substantial curated/direct
+            # evidence on both sides (>= curated weight), or equal weights. A weak inferred group
+            # (w=0.5) must not cancel a direct clinical/curated group (w=1.0).
+            has_strong_conflict = (
+                support_weight >= weight_config.curated and opposition_weight >= weight_config.curated
+            ) or (support_weight == opposition_weight)
+
+            if has_strong_conflict:
                 alignment = TherapeuticAlignment.INSUFFICIENT
                 explanation = (
                     f"[WEIGHTED] Strong directional conflict for {target_id}: "
                     f"support={support_weight:.2f}, opposition={opposition_weight:.2f}. "
-                    f"Both exceed min_effective_weight={min_w:.2f}."
+                    f"Both sides possess substantial grounded evidence."
                 )
             elif support_weight > opposition_weight:
                 alignment = TherapeuticAlignment.SUPPORTS

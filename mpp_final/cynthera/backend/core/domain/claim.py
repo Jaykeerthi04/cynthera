@@ -5,6 +5,7 @@ Reference: 02_DOMAIN_MODEL.md §4.12
 from __future__ import annotations
 
 import uuid
+from typing import Optional, Any
 from pydantic import BaseModel, Field, field_validator
 
 from backend.core.enums.predicate_type import PredicateType
@@ -52,6 +53,19 @@ class Claim(BaseModel):
     provenance: ProvenanceReference = Field(..., description="Source citation.")
     raw_text: str | None = Field(None, description="Original sentence(s) from which this claim was extracted.")
     is_validated: bool = Field(default=False, description="True once ClaimValidationAgent confirms.")
+    evidence_type: Optional[str] = Field(
+        default=None,
+        description=(
+            "Study design classification for evidence quality weighting. "
+            "Valid values match EVIDENCE_TYPE_WEIGHTS keys (e.g. 'RCT', 'META_ANALYSIS', "
+            "'COHORT_STUDY'). None means UNKNOWN — applies 0.50 quality multiplier. "
+            "Set by trial_to_negative_claim() for CT.gov-sourced claims."
+        ),
+    )
+    attribution_trace: Optional[dict[str, Any]] = Field(
+        default=None,
+        description="Structured attribution diagnostic trace for CT.gov-sourced negative claims.",
+    )
 
     @field_validator("confidence")
     @classmethod

@@ -24,7 +24,7 @@ import time
 import uuid
 from collections import Counter
 from datetime import datetime
-from typing import Any
+from typing import Any, NamedTuple
 
 from backend.core.domain.retrieval_package import RetrievalPackage
 from backend.core.domain.reasoning_result import (
@@ -32,29 +32,67 @@ from backend.core.domain.reasoning_result import (
     SupportAssessment,
     MechanisticAssessment,
     RiskAssessment,
+    OppositionAssessment,
     ScientificAuditReport,
 )
 from backend.core.domain.claim import Claim
 from backend.core.domain.claim_graph import ClaimGraph
 from backend.core.domain.contradiction import Contradiction
+from backend.core.domain.contradiction_summary import ContradictionSummary
+from backend.core.enums.causal_grounding import CausalGrounding
 from backend.core.enums.recommendation import RecommendationStatus
 from backend.core.enums.predicate_type import PredicateType
 from backend.core.enums.evidence_type import EvidenceType
 from backend.core.enums.trial_outcome import TrialOutcomeStatus
+from backend.core.value_objects.therapeutic_direction_evidence import (
+    DirectionalEvidenceGroup,
+    TherapeuticAction,
+    TherapeuticAlignmentReport,
+)
 from backend.reasoning.extraction.claim_extraction_agent import ClaimExtractionAgent
 from backend.reasoning.agents.clinical_safety_agent import ClinicalSafetyAgent, SafetyProfile
 from backend.reasoning.agents.prior_knowledge_agent import PriorKnowledgeAgent, PriorKnowledgeContext
 from backend.reasoning.mechanistic.multi_hop_reasoner import MultiHopReasoner, MechanisticPath
 from backend.reasoning.mechanistic.mechanism_validation import MechanismValidator
+from backend.reasoning.mechanistic.reaction_aggregator import aggregate_reaction_evidence
 from backend.reasoning.conflict.conflict_resolver import AdvancedConflictResolver, ConflictResolutionReport
+from backend.reasoning.opposition.therapeutic_opposition_assessor import (
+    TherapeuticOppositionAssessor,
+    evaluate_trial_attribution,
+    trial_to_negative_claim,
+)
 from backend.reasoning.context.scientific_context_builder import (
     ScientificContext,
     ScientificContextBuilder,
 )
+from backend.reasoning.therapeutic_evidence_audit import has_high_quality_therapeutic_evidence
 from backend.infrastructure.knowledge.knowledge_store import KnowledgeStore
 from backend.core.value_objects.source_url_builder import SourceURLBuilder
+from backend.reasoning.orchestrator.decision_rules import (
+    DecisionResult,
+    apply_decision_rules,
+    build_evidence_checks,
+)
 
 logger = logging.getLogger(__name__)
+
+
+class TrialClassification(NamedTuple):
+    safety_terminated: list
+    efficacy_terminated: list
+    covid_terminated: list
+    administrative_terminated: list
+    other_failed: list
+
+
+__all__ = [
+    "ReasoningOrchestrator",
+    "TrialClassification",
+    "DecisionResult",
+    "apply_decision_rules",
+    "build_evidence_checks",
+]
+
 
 # ─────────────────────────────────────────────
 # Evidence type groupings for quality breakdown
@@ -280,7 +318,7 @@ class ReasoningOrchestrator:
         # ── Step 5: Clinical Safety Analysis ────────────────────────────
         safety_profile = self._safety_agent.analyze(package)
 
-        # ── Step 6: Run three-dimensional scoring in parallel ────────────
+        # ── Step 6: Run multi-dimensional scoring in parallel ────────────
         support_task = asyncio.create_task(
             self._compute_support_score(all_claims, package, prior_ctx)
         )
@@ -290,9 +328,17 @@ class ReasoningOrchestrator:
         risk_task = asyncio.create_task(
             self._compute_risk_score(contradictions, package, safety_profile, conflict_report, all_claims)
         )
+        opposition_task = asyncio.create_task(
+            self._compute_opposition_assessment(all_claims, package)
+        )
 
-        support_assessment, mechanistic_assessment, risk_assessment = await asyncio.gather(
-            support_task, mechanistic_task, risk_task
+        (
+            support_assessment,
+            mechanistic_assessment,
+            risk_assessment,
+            opposition_assessment,
+        ) = await asyncio.gather(
+            support_task, mechanistic_task, risk_task, opposition_task
         )
 
         # ── Step 6b: Assemble dimensional ScientificContext ──────────────
@@ -306,6 +352,17 @@ class ReasoningOrchestrator:
             package=package,
         )
 
+        # ── Step 6d: Directional Alignment & Contradiction Summary ───────
+        from backend.reasoning.directional.therapeutic_alignment import TherapeuticAlignmentEngine
+        try:
+            ta_engine = TherapeuticAlignmentEngine()
+            ta_report = ta_engine.align_package(package)
+            contradiction_summary = self._build_contradiction_summary(ta_report, contradictions)
+        except Exception as exc:
+            logger.warning("therapeutic_alignment_computation_failed", extra={"error": str(exc)})
+            ta_report = None
+            contradiction_summary = None
+
         # ── Step 7: Apply recommendation rules ──────────────────────────
         recommendation_status, reasons = self._apply_rules(
             support_assessment,
@@ -316,6 +373,8 @@ class ReasoningOrchestrator:
             safety_profile,
             prior_ctx,
             scientific_context,
+            opposition=opposition_assessment,
+            contradiction_summary=contradiction_summary,
         )
 
         # ── Step 8: Generate scientific audit report ─────────────────────
@@ -333,6 +392,8 @@ class ReasoningOrchestrator:
             mechanistic_paths=mechanistic_paths,
             conflict_report=conflict_report,
             package=package,
+            contradiction_summary=contradiction_summary,
+            ta_report=ta_report,
         )
 
         duration_ms = (time.time() * 1000) - start_ms
@@ -346,11 +407,13 @@ class ReasoningOrchestrator:
             recommendation_status=recommendation_status,
             recommendation_reasons=reasons,
             audit_report=audit_report,
-            rule_set_version="2.0",
+            rule_set_version="3.2",
             reasoning_duration_ms=round(duration_ms, 2),
             completed_at=datetime.utcnow(),
             data_source_failures=data_source_failures,
             claim_extraction_method=claim_extraction_method,
+            opposition_assessment=opposition_assessment,
+            contradiction_summary=contradiction_summary,
         )
 
         logger.info(
@@ -373,7 +436,25 @@ class ReasoningOrchestrator:
     # ─────────────────────────────────────────────
 
     async def _extract_all_claims(self, package: RetrievalPackage) -> list[Claim]:
-        """Extract claims from all literature evidence in parallel."""
+        """Extract claims from all literature evidence in parallel.
+
+        Evidence is prioritized by clinical relevance before applying the
+        extraction budget cap.  This ensures that pair-specific trial
+        publications (e.g., ACTIV-6 for Fluvoxamine/COVID-19) are selected
+        ahead of generic disease reviews, even when they appear at index
+        20+ in the raw evidence list.
+
+        Priority (highest to lowest):
+        1. Evidence explicitly mentioning the evaluated drug in title/abstract
+        2. Pair-specific drug + disease evidence
+        3. Clinical trial / RCT publications
+        4. Primary study publications
+        5. Evidence with trial identifiers (NCT, ISRCTN, etc.)
+        6. Disease-specific therapeutic evidence
+        7. Generic reviews / background literature
+        """
+        _EXTRACTION_BUDGET = 10  # maximum records to pass to claim extractor
+
         lit_evidence = package.literature_evidence
         if not lit_evidence:
             logger.warning(
@@ -382,13 +463,30 @@ class ReasoningOrchestrator:
             )
             return []
 
+        # --- Relevance-based prioritization ---
+        prioritized = self._prioritize_evidence(
+            lit_evidence, package.drug.name, package.disease.name
+        )
+
+        selected = prioritized[:_EXTRACTION_BUDGET]
+        if len(lit_evidence) > _EXTRACTION_BUDGET:
+            logger.info(
+                "evidence_prioritization_applied",
+                extra={
+                    "total_literature": len(lit_evidence),
+                    "selected_count": len(selected),
+                    "drug": package.drug.name,
+                    "disease": package.disease.name,
+                },
+            )
+
         tasks = [
             self._extraction_agent.extract_claims(
                 ev,
                 package.drug.name,
                 package.disease.name,
             )
-            for ev in lit_evidence[:10]  # cap at 10 records for optimal rate-limit & throughput
+            for ev in selected
         ]
         results = await asyncio.gather(*tasks, return_exceptions=True)
         claims: list[Claim] = []
@@ -396,6 +494,98 @@ class ReasoningOrchestrator:
             if isinstance(res, list):
                 claims.extend(res)
         return claims
+
+    @staticmethod
+    def _prioritize_evidence(
+        evidence_list: list,
+        drug_name: str,
+        disease_name: str,
+    ) -> list:
+        """Deterministic relevance scoring for evidence prioritization.
+
+        Each evidence record receives a numeric score based on how clinically
+        relevant it is to the evaluated drug-disease pair.  Higher scores
+        are selected first.  The scoring is fully deterministic (no
+        randomness, no benchmark-specific logic).
+
+        Scoring dimensions (additive):
+        +10  drug name appears in title
+        +8   drug name appears in abstract
+        +5   disease name appears in title or abstract (pair-specific)
+        +6   clinical trial / RCT indicators in title/abstract
+        +3   primary study indicators (outcome, efficacy, endpoint)
+        +4   trial identifier present (NCTxxxxxxxx, ISRCTN, EudraCT)
+        +1   has both title and abstract (completeness)
+        """
+        import re as _re
+
+        drug_lower = drug_name.strip().lower()
+        disease_lower = disease_name.strip().lower()
+
+        # Precompile trial identifier pattern
+        _trial_id_pattern = _re.compile(
+            r"NCT\d{5,}", _re.IGNORECASE
+        )
+        _rct_keywords = _re.compile(
+            r"\b(randomized|randomised|placebo[- ]controlled|double[- ]blind"
+            r"|phase\s*[IiVv234]{1,3}\b|controlled\s+trial|clinical\s+trial"
+            r"|rct\b|multicenter|multicentre)\b",
+            _re.IGNORECASE,
+        )
+        _primary_study_keywords = _re.compile(
+            r"\b(primary\s+(?:end\s*point|outcome)|efficacy|failed\s+to"
+            r"|no\s+(?:significant|clinical)\s+(?:benefit|improvement|difference)"
+            r"|did\s+not\s+(?:improve|reduce|show)"
+            r"|secondary\s+(?:end\s*point|outcome)|survival|mortality"
+            r"|hazard\s+ratio|odds\s+ratio|relative\s+risk"
+            r"|intention[- ]to[- ]treat|per[- ]protocol"
+            r"|superiority|non[- ]?inferiority|futility)\b",
+            _re.IGNORECASE,
+        )
+
+        scored: list[tuple[float, int, object]] = []
+        for idx, ev in enumerate(evidence_list):
+            score = 0.0
+            title = (ev.title or "").lower()
+            abstract = (ev.abstract or "").lower()
+            combined = title + " " + abstract
+
+            # Drug mention in title (+10) or abstract (+8)
+            if drug_lower in title:
+                score += 10.0
+            elif drug_lower in abstract:
+                score += 8.0
+
+            # Disease mention — pair-specific evidence (+5)
+            if disease_lower in combined:
+                score += 5.0
+
+            # Clinical trial / RCT indicators (+6)
+            if _rct_keywords.search(combined):
+                score += 6.0
+
+            # Primary study indicators (+3)
+            if _primary_study_keywords.search(combined):
+                score += 3.0
+
+            # Trial identifier (NCT, etc.) (+4)
+            if _trial_id_pattern.search(combined):
+                score += 4.0
+            elif ev.citation_key and _trial_id_pattern.search(ev.citation_key):
+                score += 4.0
+
+            # Completeness bonus
+            if title and abstract:
+                score += 1.0
+
+            # Stable sort: negate idx to preserve original order for ties
+            scored.append((score, -idx, ev))
+
+        # Sort descending by score, then by original order (stable)
+        scored.sort(key=lambda x: (x[0], x[1]), reverse=True)
+
+        return [item[2] for item in scored]
+
 
     # ─────────────────────────────────────────────
     # Step 2: ClaimGraph
@@ -581,6 +771,15 @@ class ReasoningOrchestrator:
             f"Final SS = {score:.3f} ({level})."
         )
 
+        # Evaluate strict therapeutic evidence gate for Rule 1 gating.
+        # This determines whether PROMISING can be returned by Rule 1 secondary branch.
+        # It is safe to call here: reads only from package (no network calls).
+        try:
+            _has_hqt, _hqt_audit = has_high_quality_therapeutic_evidence(package)
+        except Exception:
+            _has_hqt = False
+            _hqt_audit = []
+
         return SupportAssessment(
             score=score,
             level=level,
@@ -588,6 +787,8 @@ class ReasoningOrchestrator:
             weighted_sum=round(quality_weighted_sum, 4),
             rationale=rationale,
             supporting_claim_ids=[str(c.id) for c in supporting_claims[:10]],
+            has_high_quality_therapeutic=_has_hqt,
+            therapeutic_evidence_audit=[a.to_dict() for a in _hqt_audit],
         )
 
     # ─────────────────────────────────────────────
@@ -633,6 +834,15 @@ class ReasoningOrchestrator:
                     "No drug targets were returned by ChEMBL/UniProt for this compound. "
                     "It is NOT a scientific statement that the drug has no targets."
                 )
+            rxn_recs = getattr(package, "reactome_reaction_evidence", []) or []
+            agg_rxns = aggregate_reaction_evidence(rxn_recs) if rxn_recs else []
+            rxn_indep = len({g for a in agg_rxns for g in getattr(a, "independence_groups", []) if g != "UNKNOWN"})
+            sc_dict = {
+                "independent_evidence_groups": 0,
+                "reaction_independent_groups": rxn_indep,
+                "curated_reaction_record_count": len(rxn_recs),
+                "support_level": "NONE",
+            }
             return MechanisticAssessment(
                 score=0.0,
                 level="NONE",
@@ -641,6 +851,7 @@ class ReasoningOrchestrator:
                 candidate_mechanisms=[],
                 evidence_status=ev_status,
                 literature_grounding_level="UNAVAILABLE",
+                score_components=sc_dict,
                 rationale=rationale,
             )
 
@@ -660,6 +871,15 @@ class ReasoningOrchestrator:
                 if critical_source_failure
                 else "No retrieved database evidence supported a biological connection to the queried disease."
             )
+            rxn_recs = getattr(package, "reactome_reaction_evidence", []) or []
+            agg_rxns = aggregate_reaction_evidence(rxn_recs) if rxn_recs else []
+            rxn_indep = len({g for a in agg_rxns for g in getattr(a, "independence_groups", []) if g != "UNKNOWN"})
+            sc_dict = {
+                "independent_evidence_groups": 0,
+                "reaction_independent_groups": rxn_indep,
+                "curated_reaction_record_count": len(rxn_recs),
+                "support_level": "NONE",
+            }
             return MechanisticAssessment(
                 score=0.0,
                 level="NONE",
@@ -668,6 +888,7 @@ class ReasoningOrchestrator:
                 candidate_mechanisms=[],
                 evidence_status=evidence_status,
                 literature_grounding_level="NONE",
+                score_components=sc_dict,
                 rationale=(
                     f"Mechanistic Score (MS) = 0.0 (NONE). "
                     f"{target_count} target(s) were retrieved but no biological mechanism "
@@ -920,7 +1141,146 @@ class ReasoningOrchestrator:
 
         return updated_candidates
 
+    def _build_contradiction_summary(
+        self,
+        report: TherapeuticAlignmentReport,
+        contradictions: list[Contradiction],
+    ) -> ContradictionSummary:
+        """Build structured contradiction summary from directional alignment report and contradictions."""
+        supp_groups: list[DirectionalEvidenceGroup] = []
+        opp_groups: list[DirectionalEvidenceGroup] = []
+        conflict_sources: list[str] = []
 
+        for ta in getattr(report, "target_alignments", []):
+            ta_supp: list[DirectionalEvidenceGroup] = []
+            ta_opp: list[DirectionalEvidenceGroup] = []
+            for g in getattr(ta, "evidence_groups", []):
+                if getattr(g, "desired_action", None) == TherapeuticAction.UNKNOWN:
+                    continue
+                if g.group_id in getattr(ta, "supporting_groups", []):
+                    ta_supp.append(g)
+                elif g.group_id in getattr(ta, "opposing_groups", []):
+                    ta_opp.append(g)
+
+            supp_groups.extend(ta_supp)
+            opp_groups.extend(ta_opp)
+            if ta_supp and ta_opp:
+                conflict_sources.append(f"Target {ta.target_id}: conflicting directional evidence")
+
+        for c in (contradictions or []):
+            src = f"Contradiction {c.subject} - {c.object}: {c.predicate_a} vs {c.predicate_b}"
+            if src not in conflict_sources:
+                conflict_sources.append(src)
+
+        n_supp = len(supp_groups)
+        n_opp = len(opp_groups)
+
+        strong_groundings = {CausalGrounding.CURATED, CausalGrounding.DIRECT}
+        supp_has_strong = any(getattr(g, "causal_grounding", None) in strong_groundings for g in supp_groups)
+        opp_has_strong = any(getattr(g, "causal_grounding", None) in strong_groundings for g in opp_groups)
+
+        if n_supp > 0 and n_opp > 0:
+            has_conflict = True
+            if supp_has_strong and not opp_has_strong:
+                resolution = "SUPPORTS"
+                strong_conflict = False
+                explanation = "Curated/direct support outweighs inferred opposition, but conflict is noted in audit."
+            elif opp_has_strong and not supp_has_strong:
+                resolution = "OPPOSES"
+                strong_conflict = False
+                explanation = "Curated/direct opposition outweighs inferred support, but conflict is noted in audit."
+            else:
+                resolution = "UNRESOLVED_CONFLICT"
+                strong_conflict = True
+                explanation = "Equally grounded contradictory evidence exists between supporting and opposing evidence groups."
+        elif n_supp > 0 and n_opp == 0:
+            has_conflict = False
+            strong_conflict = False
+            resolution = "SUPPORTS"
+            explanation = "Unilateral directional support."
+        elif n_opp > 0 and n_supp == 0:
+            has_conflict = False
+            strong_conflict = False
+            resolution = "OPPOSES"
+            explanation = "Unilateral directional opposition."
+        else:
+            has_conflict = False
+            strong_conflict = False
+            resolution = "INSUFFICIENT"
+            explanation = "Insufficient directional evidence."
+
+        return ContradictionSummary(
+            has_conflict=has_conflict,
+            support_groups=n_supp,
+            opposition_groups=n_opp,
+            support_weight=float(n_supp),
+            opposition_weight=float(n_opp),
+            strong_conflict=strong_conflict,
+            resolution=resolution,
+            conflict_sources=conflict_sources,
+            explanation=explanation,
+        )
+
+    # ─────────────────────────────────────────────
+    # Step 6c: Clinical Trial Classification & Risk Score
+    # ─────────────────────────────────────────────
+
+    def _classify_clinical_trials(self, package: RetrievalPackage) -> TrialClassification:
+        """Classify clinical trials by termination reason.
+
+        Shared single source of truth for trial termination categorization.
+        Used by both _compute_risk_score() and _compute_opposition_assessment().
+        """
+        safety_terminated: list = []
+        efficacy_terminated: list = []
+        administrative_terminated: list = []
+        covid_terminated: list = []
+        other_failed: list = []
+
+        _ADMIN_KEYWORDS = (
+            "enrollment", "enrolment", "funding", "sponsor", "administrative",
+            "business decision", "feasibility", "recruitment", "accrual",
+            "withdrawn", "logistic", "protocol deviation",
+        )
+        _COVID_KEYWORDS = ("covid", "pandemic", "sars-cov", "coronavirus")
+
+        for t in package.clinical_trials:
+            if t.status not in (
+                TrialOutcomeStatus.COMPLETED_FAILURE,
+                TrialOutcomeStatus.TERMINATED_LACK_OF_EFFICACY,
+                TrialOutcomeStatus.TERMINATED_SAFETY,
+            ) and not getattr(t, "is_negative_efficacy", False):
+                continue
+
+            # Attribution Gate (§18): A trial failure can only count against the drug if genuinely attributable
+            attr = evaluate_trial_attribution(t, package.drug.name)
+            if not attr.final_attribution_decision:
+                administrative_terminated.append(t)
+                continue
+
+            why = (getattr(t, "why_stopped", "") or getattr(t, "negative_efficacy_reason", "") or "").lower()
+
+            if t.status == TrialOutcomeStatus.TERMINATED_SAFETY:
+                safety_terminated.append(t)
+            elif any(k in why for k in _COVID_KEYWORDS):
+                covid_terminated.append(t)
+            elif any(k in why for k in _ADMIN_KEYWORDS):
+                administrative_terminated.append(t)
+            elif (
+                t.status in (TrialOutcomeStatus.TERMINATED_LACK_OF_EFFICACY, TrialOutcomeStatus.COMPLETED_FAILURE)
+                or getattr(t, "is_negative_efficacy", False)
+            ):
+                efficacy_terminated.append(t)
+            else:
+                other_failed.append(t)
+
+        return TrialClassification(
+            safety_terminated=safety_terminated,
+            efficacy_terminated=efficacy_terminated,
+            covid_terminated=covid_terminated,
+            administrative_terminated=administrative_terminated,
+            other_failed=other_failed,
+        )
 
     async def _compute_risk_score(
         self,
@@ -942,40 +1302,12 @@ class ReasoningOrchestrator:
         clinical evidence against the drug, which was the root cause of the
         Alteplase-style NOT_RECOMMENDED false positives.
         """
-        # Categorize trials by termination reason
-        safety_terminated: list = []
-        efficacy_terminated: list = []
-        administrative_terminated: list = []
-        covid_terminated: list = []
-        other_failed: list = []
-
-        _ADMIN_KEYWORDS = (
-            "enrollment", "enrolment", "funding", "sponsor", "administrative",
-            "business decision", "feasibility", "recruitment", "accrual",
-            "withdrawn", "logistic", "protocol deviation",
-        )
-        _COVID_KEYWORDS = ("covid", "pandemic", "sars-cov", "coronavirus")
-
-        for t in package.clinical_trials:
-            if t.status not in (
-                TrialOutcomeStatus.COMPLETED_FAILURE,
-                TrialOutcomeStatus.TERMINATED_LACK_OF_EFFICACY,
-                TrialOutcomeStatus.TERMINATED_SAFETY,
-            ):
-                continue
-
-            why = (getattr(t, "why_stopped", "") or "").lower()
-
-            if t.status == TrialOutcomeStatus.TERMINATED_SAFETY:
-                safety_terminated.append(t)
-            elif any(k in why for k in _COVID_KEYWORDS):
-                covid_terminated.append(t)
-            elif any(k in why for k in _ADMIN_KEYWORDS):
-                administrative_terminated.append(t)
-            elif t.status == TrialOutcomeStatus.TERMINATED_LACK_OF_EFFICACY:
-                efficacy_terminated.append(t)
-            else:
-                other_failed.append(t)
+        trial_cls = self._classify_clinical_trials(package)
+        safety_terminated = trial_cls.safety_terminated
+        efficacy_terminated = trial_cls.efficacy_terminated
+        administrative_terminated = trial_cls.administrative_terminated
+        covid_terminated = trial_cls.covid_terminated
+        other_failed = trial_cls.other_failed
 
         # Only safety + efficacy failures count toward clinical risk
         clinically_significant_failures = safety_terminated + efficacy_terminated + other_failed
@@ -1078,6 +1410,36 @@ class ReasoningOrchestrator:
         )
 
     # ─────────────────────────────────────────────
+    # Step 6d: Empirical Therapeutic Opposition Assessment
+    # ─────────────────────────────────────────────
+
+    async def _compute_opposition_assessment(
+        self,
+        all_claims: list[Claim],
+        package: RetrievalPackage,
+    ) -> OppositionAssessment:
+        """Compute empirical therapeutic opposition assessment.
+
+        Phase 5.16: Integrates TherapeuticOppositionAssessor with shared evidence
+        weighting and trial-to-negative-claim adaptation.
+        """
+        trial_cls = self._classify_clinical_trials(package)
+        trial_claims: list[Claim] = []
+        for t in trial_cls.efficacy_terminated + trial_cls.safety_terminated:
+            c = trial_to_negative_claim(t, package.drug.name, package.disease.name)
+            if c is not None:
+                trial_claims.append(c)
+
+        assessor = TherapeuticOppositionAssessor()
+        opp_input_claims = all_claims + trial_claims
+        self._last_opposition_claims = opp_input_claims
+        return assessor.assess(
+            claims=opp_input_claims,
+            drug_name=package.drug.name,
+            disease_name=package.disease.name,
+        )
+
+    # ─────────────────────────────────────────────
     # Step 7: Rule Engine
     # ─────────────────────────────────────────────
 
@@ -1088,135 +1450,33 @@ class ReasoningOrchestrator:
         risk: RiskAssessment,
         contradictions: list[Contradiction],
         package: RetrievalPackage,
-safety_profile: SafetyProfile,
+        safety_profile: SafetyProfile,
         prior_ctx: "PriorKnowledgeContext",
         scientific_context: ScientificContext,
+        opposition: OppositionAssessment | None = None,
+        contradiction_summary: ContradictionSummary | None = None,
+        **kwargs: Any,
     ) -> tuple[RecommendationStatus, list[str]]:
-        """Apply deterministic recommendation rules over (SS, MS, RS).
+        """Apply deterministic recommendation rules over (SS, MS, RS, and Opposition).
 
-        Rule Set v3.1 — Evidence-First Architecture:
-        Evidence-based rules (3, 1) fire before the data-availability lock (Rule 4).
-
-        - Rule -1 (APPROVED INDICATION): ChEMBL signals approved for this disease
-            → PROMISING, bypass ClinicalTrials safety lock (Rule 4)
-            → Safety veto still applies (Rules 0 and 3)
-        - Rule 0 (SAFETY_VETO): Boxed warning + HIGH risk → NOT_RECOMMENDED
-        - Rule 3 (SAFETY_VETO): RS >= 0.70 → NOT_RECOMMENDED
-        - Rule 1 (PROMISING): SS >= MEDIUM AND MS >= MEDIUM AND RS <= LOW
-        - Rule 4 (SAFETY_LOCK): ClinicalTrials failed AND not approved → cap at UNCERTAIN
-        - Rule 5 (UNCERTAIN): default
-
-        Critically: Rule -1 fires ONLY when the dimensional Regulatory Status is
-        APPROVED — which is True only from the live ChEMBL ApprovalSignal
-        (max_phase_for_ind == 4 for this disease, confidence >= 0.35). No drug
-        name checks. No hardcoded disease lists. All other dimensions are purely
-        descriptive and grant no rule-bypass privilege.
+        Delegates directly to the authoritative single source of truth:
+        backend.reasoning.orchestrator.decision_rules.apply_decision_rules
         """
-        reasons: list[str] = []
-
-        # Build evidence checklist
-        checks = self._build_evidence_checks(support, mechanistic, risk, contradictions, package)
-
-        # Check Source Availability / Pipeline Failure Gate
-        if mechanistic.evidence_status == "SOURCE_UNAVAILABLE" or ("chembl" in package.sources_failed and "uniprot" in package.sources_failed):
-            reasons.append(
-                f"Rule -2 (DATA AVAILABILITY FAILURE): Critical target/mechanism databases "
-                f"failed during retrieval: [{', '.join(package.sources_failed)}]. "
-                "Unable to evaluate hypothesis due to source unavailability."
-            )
-            reasons.extend(checks)
-            return RecommendationStatus.INSUFFICIENT_DATA, reasons
-
-        # Rule: Approved indication pathway (evidence-driven, not hardcoded)
-        if scientific_context.regulatory.status == "APPROVED":
-            reasons.append(
-                f"Rule -1 (APPROVED INDICATION): ChEMBL indication data indicates this drug "
-                f"is approved (max_phase_for_ind = 4) for an indication matching '{package.disease.name}' "
-                f"(regulatory confidence {scientific_context.regulatory.confidence:.0%}). "
-                f"Matched ChEMBL term: '{prior_ctx.matched_indication_term}'. "
-                "ClinicalTrials.gov safety lock (Rule 4) bypassed for approved therapies. "
-                "Standard safety vetoes (Rules 0 and 3) still apply."
-            )
-            # Safety veto still applies even for approved drugs
-            if safety_profile.has_boxed_warning and risk.score >= 0.6:
-                reasons.append(
-                    f"Rule 0 override: Despite approved status, boxed warning AND "
-                    f"Risk Score = {risk.score:.3f} (HIGH). "
-                    "Safety concerns override even for approved indications."
-                )
-                reasons.extend(checks)
-                return RecommendationStatus.NOT_RECOMMENDED, reasons
-            if risk.score >= 0.7:
-                reasons.append(
-                    f"Rule 3 override: Despite approved status, Risk Score is HIGH ({risk.score:.3f}). "
-                    "Significant safety signals detected."
-                )
-                reasons.extend(checks)
-                return RecommendationStatus.UNCERTAIN, reasons
-            reasons.extend(checks)
-            return RecommendationStatus.PROMISING, reasons
-
-        # Rule 0: Safety & Contraindication Veto — boxed warning or high-concern safety profile
-        if safety_profile.has_boxed_warning or safety_profile.overall_safety_grade == "D" or risk.score >= 0.6:
-            reasons.append(
-                f"Rule 0 (SAFETY VETO): ⚠ Boxed warning / contraindication detected. Risk Score = "
-                f"{risk.score:.3f}. Safety grade: {safety_profile.overall_safety_grade}. "
-                "NOT RECOMMENDED due to unacceptable safety profile / disease contraindication."
-            )
-            reasons.extend(checks)
-            return RecommendationStatus.NOT_RECOMMENDED, reasons
-
-        # Rule 2: Clinical Trial Failure Assessment — multiple clinically significant trial failures or high risk burden
-        if risk.score >= 0.60 or (risk.failed_trial_count >= 2 and risk.score >= 0.50):
-            reasons.append(
-                f"Rule 2 (CLINICAL FAILURE VETO): Risk Score = {risk.score:.3f} "
-                f"with {risk.failed_trial_count} clinically significant trial failure(s). "
-                "NOT RECOMMENDED due to documented clinical endpoint failures or safety signals."
-            )
-            reasons.extend(checks)
-            return RecommendationStatus.NOT_RECOMMENDED, reasons
-
-        # Rule 3: Safety veto — high risk score (evidence-based, fires before data-lock)
-        if risk.score >= 0.7:
-            reasons.append(
-                f"Rule 3 (SAFETY VETO): Risk Score is HIGH ({risk.score:.3f}). "
-                f"Triggered by {risk.failed_trial_count} failed trial(s) and "
-                f"{risk.contradiction_count} contradiction(s). "
-                f"Safety grade: {safety_profile.overall_safety_grade}."
-            )
-            reasons.extend(checks)
-            return RecommendationStatus.NOT_RECOMMENDED, reasons
-
-        # Rule 1: Promising criteria (evidence-based, fires before data-lock)
-        if support.score >= 0.4 and mechanistic.score >= 0.4 and risk.score <= 0.39:
-            reasons.append(
-                f"Rule 1 (PROMISING): SS = {support.score:.3f} (≥ 0.40), "
-                f"MS = {mechanistic.score:.3f} (≥ 0.40), "
-                f"RS = {risk.score:.3f} (≤ 0.39). "
-                f"Safety grade: {safety_profile.overall_safety_grade}."
-            )
-            reasons.extend(checks)
-            return RecommendationStatus.PROMISING, reasons
-
-        # Rule 4: Safety lock — clinical trials data unavailable (fallback, after evidence)
-        if "clinicaltrials" in package.sources_failed:
-            reasons.append(
-                "Rule 4 (SAFETY LOCK): ClinicalTrials.gov data unavailable. "
-                "Without human clinical evidence, the maximum confidence level is UNCERTAIN. "
-                "This is a conservative safety constraint for repurposing hypotheses, "
-                "not a scientific negative."
-            )
-            reasons.extend(checks)
-            return RecommendationStatus.UNCERTAIN, reasons
-
-        # Rule 5: Default uncertain
-        reasons.append(
-            f"Rule 5 (UNCERTAIN): Mixed or sparse evidence. "
-            f"SS={support.score:.3f}, MS={mechanistic.score:.3f}, RS={risk.score:.3f}. "
-            f"Safety grade: {safety_profile.overall_safety_grade}."
+        res: DecisionResult = apply_decision_rules(
+            support=support,
+            mechanistic=mechanistic,
+            risk=risk,
+            contradictions=contradictions,
+            package=package,
+            safety_profile=safety_profile,
+            prior_ctx=prior_ctx,
+            scientific_context=scientific_context,
+            opposition=opposition,
+            contradiction_summary=contradiction_summary,
+            **kwargs,
         )
-        reasons.extend(checks)
-        return RecommendationStatus.UNCERTAIN, reasons
+        self._last_rule_minus_one_trace = res.trace
+        return res.status, res.reasons
 
     def _build_evidence_checks(
         self,
@@ -1225,37 +1485,20 @@ safety_profile: SafetyProfile,
         risk: RiskAssessment,
         contradictions: list[Contradiction],
         package: RetrievalPackage,
+        opposition: OppositionAssessment | None = None,
     ) -> list[str]:
         """Build evidence checklist for transparent recommendation display.
 
-        FIX (Issue #6, #1): Shows clear signal/gap breakdown instead of
-        just a single recommendation label.
+        Delegates directly to backend.reasoning.orchestrator.decision_rules.build_evidence_checks.
         """
-        checks = []
-        checks.append("Evidence signals:")
-        checks.append(
-            f"  {'[PASS]' if support.score >= 0.5 else '[FAIL]'} Literature support: "
-            f"SS = {support.score:.3f} ({support.level}) from {support.evidence_count} records"
+        return build_evidence_checks(
+            support=support,
+            mechanistic=mechanistic,
+            risk=risk,
+            contradictions=contradictions,
+            package=package,
+            opposition=opposition,
         )
-        checks.append(
-            f"  {'[PASS]' if mechanistic.score >= 0.4 else '[FAIL]'} Mechanistic plausibility: "
-            f"MS = {mechanistic.score:.3f} ({mechanistic.level}), "
-            f"{mechanistic.pathway_count} pathway(s)"
-        )
-        checks.append(
-            f"  {'[FAIL]' if risk.score >= 0.4 else '[PASS]'} Safety/Risk acceptable: "
-            f"RS = {risk.score:.3f} ({risk.level})"
-        )
-        checks.append(
-            f"  {'[FAIL]' if contradictions else '[PASS]'} Evidence consistency: "
-            f"{'No contradictions' if not contradictions else f'{len(contradictions)} contradiction(s) detected'}"
-        )
-        checks.append(
-            f"  {'[PASS]' if 'clinicaltrials' not in package.sources_failed else '[FAIL]'} "
-            f"Human clinical data: "
-            f"{'Available' if 'clinicaltrials' not in package.sources_failed else 'Unavailable (ClinicalTrials.gov)'}"
-        )
-        return checks
 
     # ─────────────────────────────────────────────
     # Step 8: Scientific Audit Report
@@ -1276,6 +1519,8 @@ safety_profile: SafetyProfile,
         mechanistic_paths: list[MechanisticPath],
         conflict_report: ConflictResolutionReport,
         package: RetrievalPackage,
+        contradiction_summary: ContradictionSummary | None = None,
+        ta_report: Any | None = None,
     ) -> ScientificAuditReport:
         """Generate the enhanced scientific audit report.
 
@@ -1603,14 +1848,17 @@ safety_profile: SafetyProfile,
         )
 
         # ── Phase 4D: Compute Therapeutic Alignment Report ──────────────────
-        from backend.reasoning.directional.therapeutic_alignment import TherapeuticAlignmentEngine
-        try:
-            ta_engine = TherapeuticAlignmentEngine()
-            ta_report = ta_engine.align_package(package)
+        if ta_report is not None:
             ta_dict = ta_report.model_dump(mode="json")
-        except Exception as exc:
-            logger.warning("therapeutic_alignment_computation_failed", extra={"error": str(exc)})
-            ta_dict = {}
+        else:
+            from backend.reasoning.directional.therapeutic_alignment import TherapeuticAlignmentEngine
+            try:
+                ta_engine = TherapeuticAlignmentEngine()
+                _ta_r = ta_engine.align_package(package)
+                ta_dict = _ta_r.model_dump(mode="json")
+            except Exception as exc:
+                logger.warning("therapeutic_alignment_computation_failed", extra={"error": str(exc)})
+                ta_dict = {}
 
         return ScientificAuditReport(
             summary=summary,
@@ -1636,6 +1884,12 @@ safety_profile: SafetyProfile,
             candidate_mechanisms=mechanistic.candidate_mechanisms,
             sources_accessed=sources_accessed,
             therapeutic_alignment=ta_dict,
+            contradiction_summary=(
+                contradiction_summary.model_dump(mode="json")
+                if contradiction_summary is not None
+                else {}
+            ),
+            rule_minus_one_trace=getattr(self, "_last_rule_minus_one_trace", {}),
         )
 
     def _extract_citations(self, evidence_records: list) -> list[str]:

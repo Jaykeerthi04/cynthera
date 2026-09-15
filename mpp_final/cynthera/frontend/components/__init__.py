@@ -1,0 +1,1 @@
+"""CYNTHERA Frontend Components Package."""

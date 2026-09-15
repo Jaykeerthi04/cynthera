@@ -67,7 +67,7 @@ class EvaluationSummaryResponse(BaseModel):
     summary: str
     duration_ms: float
     from_cache: bool = False
-    rule_set_version: str = "2.0"
+    rule_set_version: str = "3.2"
 
 
 class HealthResponse(BaseModel):

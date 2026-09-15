@@ -1,0 +1,26 @@
+case_id,drug,disease,category,status,prediction,expected,runtime_seconds,mechanistic_score,support_score,cache_hit
+CYN-003,Lisinopril,Hypertension,Established positive,RETRIEVAL_FAILURE,UNCERTAIN,SUPPORT,78.83,0.0,0.0,False
+CYN-013,Aspirin,Secondary prevention of cardiovascular disease,Established positive,RETRIEVAL_FAILURE,UNCERTAIN,SUPPORT,25.14,0.0,0.0,False
+CYN-023,Budesonide,Asthma,Established positive,RETRIEVAL_FAILURE,UNCERTAIN,SUPPORT,55.68,0.0,0.0,False
+CYN-026,Fluticasone,Allergic rhinitis,Established positive,RETRIEVAL_FAILURE,UNCERTAIN,SUPPORT,84.35,0.0,0.0,False
+CYN-036,Etanercept,Rheumatoid arthritis,Established positive,RETRIEVAL_FAILURE,UNCERTAIN,SUPPORT,56.01,0.0,0.0,False
+CYN-041,Tamoxifen,ER-positive breast cancer,Established positive,RETRIEVAL_FAILURE,UNCERTAIN,SUPPORT,56.71,0.0,0.0,False
+CYN-044,Trastuzumab,HER2-positive breast cancer,Established positive,RETRIEVAL_FAILURE,UNCERTAIN,SUPPORT,53.87,0.0,0.0,False
+CYN-251,Metformin,Pancreatic cancer,Hard negative,RETRIEVAL_FAILURE,UNCERTAIN,OPPOSE,50.94,0.0,0.0,False
+CYN-260,Furosemide,Depression,Hard negative,RETRIEVAL_FAILURE,UNCERTAIN,OPPOSE,99.08,0.0,0.0,False
+CYN-261,Warfarin,Leishmaniasis,Hard negative,RETRIEVAL_FAILURE,UNCERTAIN,OPPOSE,60.84,0.0,0.0,False
+CYN-277,Pregabalin,Breast cancer,Hard negative,RETRIEVAL_FAILURE,UNCERTAIN,OPPOSE,26.51,0.0,0.0,False
+CYN-284,Tamsulosin,Liver cancer,Hard negative,RETRIEVAL_FAILURE,UNCERTAIN,OPPOSE,56.93,0.0,0.0,False
+CYN-299,Imatinib,COVID-19,Hard negative,RETRIEVAL_FAILURE,UNCERTAIN,OPPOSE,55.32,0.0,0.0,False
+CYN-103,Azithromycin,COVID-19,Contradictory/negative,RETRIEVAL_FAILURE,UNCERTAIN,OPPOSE,28.64,0.0,0.0,False
+CYN-109,Fluvoxamine,COVID-19,Contradictory/negative,SUCCESS,UNCERTAIN,OPPOSE,0.07,0.3437,0.9912,True
+CYN-111,Aspirin,COVID-19,Contradictory/negative,RETRIEVAL_FAILURE,UNCERTAIN,OPPOSE,39.84,0.0,0.0,False
+CYN-117,Baricitinib,COVID-19,Contradictory/negative,RETRIEVAL_FAILURE,UNCERTAIN,OPPOSE,72.4,0.0,0.0,False
+CYN-125,Atorvastatin,Alzheimer disease,Contradictory/negative,RETRIEVAL_FAILURE,UNCERTAIN,OPPOSE,92.56,0.0,0.0,False
+CYN-137,Lithium,Alzheimer disease,Contradictory/negative,RETRIEVAL_FAILURE,UNCERTAIN,OPPOSE,36.21,0.0,0.0,False
+CYN-179,Propranolol,Depression,Weak/indirect,RETRIEVAL_FAILURE,UNCERTAIN,UNCERTAIN,55.12,0.0,0.0,False
+CYN-186,Colchicine,Colorectal cancer,Weak/indirect,RETRIEVAL_FAILURE,UNCERTAIN,UNCERTAIN,92.65,0.0,0.0,False
+CYN-200,Escitalopram,Neuropathic pain,Weak/indirect,RETRIEVAL_FAILURE,UNCERTAIN,UNCERTAIN,88.43,0.0,0.0,False
+CYN-213,Furosemide,COPD,Weak/indirect,RETRIEVAL_FAILURE,UNCERTAIN,UNCERTAIN,94.79,0.0,0.0,False
+CYN-221,Baricitinib,Influenza,Weak/indirect,RETRIEVAL_FAILURE,UNCERTAIN,UNCERTAIN,84.32,0.0,0.0,False
+CYN-249,Losartan,Breast cancer,Weak/indirect,RETRIEVAL_FAILURE,UNCERTAIN,UNCERTAIN,30.49,0.0,0.0,False

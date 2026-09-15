@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 
 from backend.core.enums.recommendation import RecommendationStatus
 from backend.core.domain.contradiction import Contradiction
+from backend.core.domain.contradiction_summary import ContradictionSummary
 
 
 class SupportAssessment(BaseModel):
@@ -33,6 +34,14 @@ class SupportAssessment(BaseModel):
     weighted_sum: float = Field(default=0.0, ge=0.0)
     rationale: str = Field(default="", description="Human-readable explanation.")
     supporting_claim_ids: list[str] = Field(default_factory=list)
+    evidence_family_counts: dict[str, int] = Field(default_factory=dict, description="Counts by evidence family.")
+    clinical_trial_success_count: int = Field(default=0, ge=0, description="Count of completed successful clinical trials.")
+    has_high_quality_therapeutic: bool = Field(default=False, description="True only for authoritative, pair-scoped therapeutic evidence.")
+    regulatory_approved: bool = Field(default=False, description="True if approved for this indication.")
+    therapeutic_evidence_audit: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description="Provenance decisions for records considered by the high-quality therapeutic gate.",
+    )
 
 
 class MechanisticAssessment(BaseModel):
@@ -47,6 +56,7 @@ class MechanisticAssessment(BaseModel):
         evidence_status: 'SOURCE_UNAVAILABLE' | 'IDENTITY_RESOLUTION_FAILED' | 'INSUFFICIENT_EVIDENCE' | 'MECHANISTICALLY_UNSUPPORTED' | 'CONTRADICTED' | 'MECHANISTICALLY_PLAUSIBLE'
         literature_grounding_level: 'STRONG' | 'MODERATE' | 'NONE' | 'UNAVAILABLE'
         rationale: Human-readable explanation.
+        score_components: Dictionary of weighted sub-scores contributing to the total score.
     """
 
     model_config = {"frozen": True}
@@ -71,7 +81,17 @@ class MechanisticAssessment(BaseModel):
         description="Literature grounding state: STRONG | MODERATE | NONE | UNAVAILABLE",
     )
     rationale: str = Field(default="", description="Human-readable explanation.")
-
+    score_components: dict[str, Any] = Field(
+        default_factory=dict,
+        description=(
+            "Phase 5.1 mechanistic quality audit breakdown. "
+            "Keys: raw_confidence (float), support_level (str), structural_edge_count (int), "
+            "causal_edge_count (int), grounded_edge_count (int), "
+            "independent_evidence_groups (int), reaction_enriched (bool). "
+            "MS remains the raw mechanistic confidence score. Quality is exposed here separately "
+            "so recommendation gating can use support_level without altering the numeric score."
+        ),
+    )
 
 
 class RiskAssessment(BaseModel):
@@ -94,6 +114,105 @@ class RiskAssessment(BaseModel):
     contradiction_count: int = Field(default=0, ge=0)
     rationale: str = Field(default="", description="Human-readable explanation.")
     risk_claim_ids: list[str] = Field(default_factory=list)
+
+
+def level_from_score(score: float) -> str:
+    """Canonical derivation of opposition level from opposition score.
+
+    Thresholds align with Rule 2b and Phase 5.16 specification:
+    - >= 0.45: HIGH (Rule 2b veto threshold)
+    - >= 0.25: MODERATE
+    - > 0.0: LOW
+    - == 0.0: NONE
+    """
+    if score >= 0.45:
+        return "HIGH"
+    elif score >= 0.25:
+        return "MODERATE"
+    elif score > 0.0:
+        return "LOW"
+    return "NONE"
+
+
+class OppositionAssessment(BaseModel):
+    """Therapeutic opposition evidence assessment (Phase 5.16).
+
+    Captures explicit negative therapeutic evidence for the queried drug-disease pair.
+    A score of 0.0 means no explicit negative evidence was found — it does NOT imply
+    that the drug is safe or effective for this indication.
+
+    Attributes:
+        score: Aggregate opposition score [0.0, 1.0].
+        level: Categorical level — NONE | LOW | MODERATE | HIGH.
+        independent_group_count: Number of independent study groups with negative evidence.
+        key_claim_ids: UUIDs of the highest-weight negative claims.
+        rationale: Human-readable explanation.
+        qualified_negative_claim_count: Claims that passed drug + disease relevance gates.
+        qualified_claim_count: Alias for qualified_negative_claim_count matching canonical spec.
+        excluded_negative_claim_count: Negative-predicate claims excluded by relevance gates.
+        strongest_group_weight: Weight of the highest-weight evidence group.
+        qualified_claims: Serialized list of qualified negative claims.
+        independent_groups: Clustered independent study groups and weights.
+        rejected_claims: Serialized list of excluded negative claims.
+        rejection_reasons: Mapping of claim/trial ID to rejection reason.
+    """
+
+    model_config = {"frozen": True}
+
+    score: float = Field(..., ge=0.0, le=1.0, description="Aggregate opposition score [0.0, 1.0].")
+    level: str = Field(..., pattern="^(HIGH|MODERATE|LOW|NONE)$", description="Opposition level.")
+    independent_group_count: int = Field(default=0, ge=0)
+    key_claim_ids: list[str] = Field(default_factory=list)
+    rationale: str = Field(default="")
+    qualified_negative_claim_count: int = Field(default=0, ge=0)
+    qualified_claim_count: int = Field(default=0, ge=0)
+    excluded_negative_claim_count: int = Field(default=0, ge=0)
+    strongest_group_weight: float = Field(default=0.0, ge=0.0)
+    has_direct_harm: bool = Field(default=False, description="True if evidence demonstrates clinically meaningful treatment-related harm.")
+    qualified_claims: list[dict[str, Any]] = Field(default_factory=list)
+    independent_groups: list[dict[str, Any]] = Field(default_factory=list)
+    rejected_claims: list[dict[str, Any]] = Field(default_factory=list)
+    rejection_reasons: dict[str, str] = Field(default_factory=dict)
+
+    def __init__(self, **data: Any):
+        # Synchronize claim counts if only one is specified or list is provided
+        q_claims = data.get("qualified_claims", [])
+        q_count = data.get("qualified_claim_count")
+        q_neg_count = data.get("qualified_negative_claim_count")
+        effective_q = max(
+            len(q_claims),
+            q_count if q_count is not None else 0,
+            q_neg_count if q_neg_count is not None else 0,
+        )
+        if q_count is None:
+            data["qualified_claim_count"] = effective_q
+        if q_neg_count is None:
+            data["qualified_negative_claim_count"] = effective_q
+
+        indep_groups = data.get("independent_groups", [])
+        indep_count = data.get("independent_group_count")
+        if indep_count is None or (len(indep_groups) > (indep_count or 0)):
+            data["independent_group_count"] = max(len(indep_groups), indep_count or 0)
+
+        super().__init__(**data)
+
+    @classmethod
+    def empty(cls) -> "OppositionAssessment":
+        """Return a zero-score assessment (no negative evidence detected)."""
+        return cls(
+            score=0.0,
+            level="NONE",
+            rationale="No explicit negative therapeutic evidence detected for this drug-disease pair.",
+            independent_group_count=0,
+            qualified_negative_claim_count=0,
+            qualified_claim_count=0,
+            excluded_negative_claim_count=0,
+            strongest_group_weight=0.0,
+            qualified_claims=[],
+            independent_groups=[],
+            rejected_claims=[],
+            rejection_reasons={},
+        )
 
 
 class ScientificAuditReport(BaseModel):
@@ -213,6 +332,14 @@ class ScientificAuditReport(BaseModel):
         default_factory=dict,
         description="Phase 4D Therapeutic Alignment report capturing target-level and overall directional compatibility.",
     )
+    contradiction_summary: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Phase 5.6 structured contradiction and uncertainty summary dict.",
+    )
+    rule_minus_one_trace: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Phase 1B Rule -1 routing and opposition evaluation trace.",
+    )
 
 
 
@@ -260,7 +387,7 @@ class ReasoningResult(BaseModel):
         description="Ordered list of rule-based reasons for the recommendation.",
     )
     audit_report: ScientificAuditReport = Field(..., description="Full scientific audit report.")
-    rule_set_version: str = Field(default="1.0", description="RuleEngine rule set version used.")
+    rule_set_version: str = Field(default="3.2", description="RuleEngine rule set version used.")
     reasoning_duration_ms: float = Field(default=0.0, ge=0.0, description="Total reasoning duration ms.")
     completed_at: datetime = Field(default_factory=datetime.utcnow, description="UTC completion timestamp.")
     data_source_failures: list[str] = Field(
@@ -279,6 +406,34 @@ class ReasoningResult(BaseModel):
             "not scientifically extracted. Displayed in the report."
         ),
     )
+    contradiction_summary: ContradictionSummary | None = Field(
+        default=None,
+        description="Phase 5.6 structured contradiction and epistemic uncertainty summary.",
+    )
+    opposition_assessment: OppositionAssessment = Field(
+        default_factory=OppositionAssessment.empty,
+        description="Phase 5.16 therapeutic opposition evidence assessment.",
+    )
+
+    @property
+    def opposition_score(self) -> float:
+        """Canonical opposition score directly from opposition assessment."""
+        return self.opposition_assessment.score
+
+    @property
+    def opposition_level(self) -> str:
+        """Canonical opposition level directly from opposition assessment."""
+        return self.opposition_assessment.level
+
+    @property
+    def qualified_negative_claim_count(self) -> int:
+        """Canonical count of qualified negative claims."""
+        return self.opposition_assessment.qualified_negative_claim_count
+
+    @property
+    def independent_opposition_group_count(self) -> int:
+        """Canonical count of independent study groups with negative evidence."""
+        return self.opposition_assessment.independent_group_count
 
     @classmethod
     def resolution_failed(
@@ -314,6 +469,7 @@ class ReasoningResult(BaseModel):
             risk_assessment=RiskAssessment(
                 score=0.0, level="NONE", rationale="Resolution failed — risk score not computed."
             ),
+            opposition_assessment=OppositionAssessment.empty(),
             recommendation_status=RecommendationStatus.RESOLUTION_FAILED,
             recommendation_reasons=fail_reasons,
             audit_report=ScientificAuditReport(

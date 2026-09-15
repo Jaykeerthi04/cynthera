@@ -21,6 +21,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from backend.api.routes import router
 from backend.api.batch_routes import batch_router
 from backend.api.report_routes import report_router
+from backend.playground.playground_routes import playground_router
 from backend.infrastructure.cache.evaluation_cache import EvaluationCache
 from backend.infrastructure.knowledge.knowledge_store import KnowledgeStore
 
@@ -122,6 +123,7 @@ def create_app() -> FastAPI:
     app.include_router(router)        # Core evaluation routes
     app.include_router(batch_router)  # Batch evaluation routes
     app.include_router(report_router) # PDF report routes
+    app.include_router(playground_router)  # Playground / Evidence Explorer routes
 
     # ── Cache Stats Endpoint ─────────────────────────────────────────────
     @app.get("/api/v1/cache/stats", tags=["Cache"])

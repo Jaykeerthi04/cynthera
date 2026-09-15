@@ -18,6 +18,7 @@ from backend.core.domain.evidence import Evidence
 from backend.core.domain.clinical_trial import ClinicalTrial
 from backend.core.domain.approval_signal import ApprovalSignal
 from backend.core.domain.reactome_reaction_evidence import ReactomeReactionEvidence
+from backend.core.domain.disease_gene_evidence import DiseaseGeneEvidence
 from backend.core.value_objects.biological_identifier import BiologicalIdentifierMapping
 from backend.core.value_objects.therapeutic_direction_evidence import (
     OpenTargetsDoEEvidence,
@@ -122,6 +123,10 @@ class RetrievalPackage(BaseModel):
     therapeutic_direction_evidence: list[TherapeuticDirectionEvidence] = Field(
         default_factory=list,
         description="Normalized therapeutic direction evidence records with provenance and independence grouping.",
+    )
+    disease_gene_evidence: list[DiseaseGeneEvidence] = Field(
+        default_factory=list,
+        description="Structured, tiered disease-associated gene evidence records with explicit scope and provenance.",
     )
 
 

@@ -1,0 +1,483 @@
+==============================================================================
+CYNTHERA -- 30-Case Hold-Out Research Evaluation Report
+==============================================================================
+
+Generated: 2026-09-06T23:00:05.257149
+Engine Version: CYNTHERA v2.0
+Rule Set: 3.2
+Cache Version: v7.4_strict_specific_token
+Total Runtime: 2447.4s
+Total Cases: 30
+
+------------------------------------------------------------------------------
+1. EXECUTIVE SUMMARY
+------------------------------------------------------------------------------
+
+  Standard Accuracy:       50.0% (15/30)
+  Epistemic Accuracy:      76.7% (23/30)
+  Standard Macro-F1:       0.5000
+  Epistemic Macro-F1:      0.6528
+  Standard MCC:            0.4760
+  Epistemic MCC:           0.6460
+
+  Standard Accuracy 95% CI:  [33.3%, 66.7%]
+  Epistemic Accuracy 95% CI: [60.0%, 90.0%]
+  Standard Macro-F1 95% CI:  [0.3542, 0.6323]
+  Epistemic Macro-F1 95% CI: [0.4924, 0.8168]
+
+  Scoring Philosophy:
+    Standard: unverified pairs -> OPPOSE (benchmark convention)
+    Epistemic: unverified pairs -> UNCERTAIN (UNKNOWN != NEGATIVE)
+
+------------------------------------------------------------------------------
+2. CATEGORY PERFORMANCE
+------------------------------------------------------------------------------
+
+  Established positive:
+    Cases: 8
+    Standard Accuracy: 7/8 = 87.5%
+    Epistemic Accuracy: 7/8 = 87.5%
+    Prediction Distribution: {'SUPPORT': 7, 'UNCERTAIN': 1}
+
+  Verified negative:
+    Cases: 7
+    Standard Accuracy: 1/7 = 14.3%
+    Epistemic Accuracy: 1/7 = 14.3%
+    Prediction Distribution: {'OPPOSE': 1, 'UNCERTAIN': 5, 'SUPPORT': 1}
+
+  Unverified:
+    Cases: 8
+    Standard Accuracy: 0/8 = 0.0%
+    Epistemic Accuracy: 8/8 = 100.0%
+    Prediction Distribution: {'UNCERTAIN': 8}
+
+  Weak/indirect:
+    Cases: 7
+    Standard Accuracy: 7/7 = 100.0%
+    Epistemic Accuracy: 7/7 = 100.0%
+    Prediction Distribution: {'UNCERTAIN': 7}
+
+------------------------------------------------------------------------------
+3. CONFUSION MATRICES
+------------------------------------------------------------------------------
+
+  3a. Standard 3-Class Confusion Matrix
+       (rows = expected, columns = predicted)
+
+                 SUPPORT    OPPOSE   UNCERTAIN
+       SUPPORT         7         0           1
+        OPPOSE         1         1          13
+     UNCERTAIN         0         0           7
+
+  3b. Epistemic 3-Class Confusion Matrix
+       (rows = expected, columns = predicted)
+
+                 SUPPORT    OPPOSE   UNCERTAIN
+       SUPPORT         7         0           1
+        OPPOSE         1         1           5
+     UNCERTAIN         0         0          15
+
+------------------------------------------------------------------------------
+4. PER-CLASS METRICS
+------------------------------------------------------------------------------
+
+  4a. Standard Scoring:
+         Class   Precision    Recall        F1   Support
+       SUPPORT      0.8750    0.8750    0.8750         8
+        OPPOSE      1.0000    0.0667    0.1250        15
+     UNCERTAIN      0.3333    1.0000    0.5000         7
+
+  4b. Epistemic Scoring:
+         Class   Precision    Recall        F1   Support
+       SUPPORT      0.8750    0.8750    0.8750         8
+        OPPOSE      1.0000    0.1429    0.2500         7
+     UNCERTAIN      0.7143    1.0000    0.8333        15
+
+------------------------------------------------------------------------------
+5. DERIVED DIAGNOSTIC METRICS
+------------------------------------------------------------------------------
+
+  Category E Recovery (Established -> SUPPORT): 7/8
+  Category F Recall (Verified Negative -> OPPOSE): 1/7
+  False-PROMISING Rate: 1/22 = 4.5%
+
+------------------------------------------------------------------------------
+6. ERROR TAXONOMY
+------------------------------------------------------------------------------
+
+  UNCLASSIFIED: Unverified expected=OPPOSE got=UNCERTAIN: 8
+  OPPOSITION_GAP: No opposition evidence retrieved -- opposition assessor missed clinical failure: 4
+  THERAPEUTIC_ANCHOR: Rule 1c blocked -- no high-quality therapeutic evidence despite approval: 1
+  FALSE_POSITIVE: Verified negative incorrectly promoted to SUPPORT: 1
+  OPPOSITION_THRESHOLD: Opposition detected but insufficient to trigger Rule 2b veto: 1
+
+  Detailed Errors:
+    H-008 Doxorubicin -> Breast cancer
+      Category: Established positive
+      Expected (std): SUPPORT | Expected (epi): SUPPORT
+      Predicted: UNCERTAIN (UNCERTAIN)
+      Error Class: THERAPEUTIC_ANCHOR: Rule 1c blocked -- no high-quality therapeutic evidence despite approval
+      SS=0.994 MS=0.000 RS=0.000 Opp=0.000
+
+    H-010 Ivermectin -> COVID-19
+      Category: Verified negative
+      Expected (std): OPPOSE | Expected (epi): OPPOSE
+      Predicted: UNCERTAIN (UNCERTAIN)
+      Error Class: OPPOSITION_GAP: No opposition evidence retrieved -- opposition assessor missed clinical failure
+      SS=0.987 MS=0.000 RS=0.000 Opp=0.000
+
+    H-011 Celecoxib -> Alzheimer disease
+      Category: Verified negative
+      Expected (std): OPPOSE | Expected (epi): OPPOSE
+      Predicted: UNCERTAIN (UNCERTAIN)
+      Error Class: OPPOSITION_GAP: No opposition evidence retrieved -- opposition assessor missed clinical failure
+      SS=0.980 MS=0.383 RS=0.058 Opp=0.000
+
+    H-012 Simvastatin -> Sepsis
+      Category: Verified negative
+      Expected (std): OPPOSE | Expected (epi): OPPOSE
+      Predicted: UNCERTAIN (UNCERTAIN)
+      Error Class: OPPOSITION_GAP: No opposition evidence retrieved -- opposition assessor missed clinical failure
+      SS=0.994 MS=0.000 RS=0.000 Opp=0.000
+
+    H-013 Niacin -> Cardiovascular disease
+      Category: Verified negative
+      Expected (std): OPPOSE | Expected (epi): OPPOSE
+      Predicted: SUPPORT (PROMISING)
+      Error Class: FALSE_POSITIVE: Verified negative incorrectly promoted to SUPPORT
+      SS=0.995 MS=0.000 RS=0.259 Opp=0.319
+
+    H-014 Dexamethasone -> Traumatic brain injury
+      Category: Verified negative
+      Expected (std): OPPOSE | Expected (epi): OPPOSE
+      Predicted: UNCERTAIN (UNCERTAIN)
+      Error Class: OPPOSITION_THRESHOLD: Opposition detected but insufficient to trigger Rule 2b veto
+      SS=0.986 MS=0.490 RS=0.542 Opp=0.319
+
+    H-015 Interferon beta-1a -> COVID-19
+      Category: Verified negative
+      Expected (std): OPPOSE | Expected (epi): OPPOSE
+      Predicted: UNCERTAIN (UNCERTAIN)
+      Error Class: OPPOSITION_GAP: No opposition evidence retrieved -- opposition assessor missed clinical failure
+      SS=0.986 MS=0.414 RS=0.000 Opp=0.000
+
+    H-016 Omeprazole -> Parkinson disease
+      Category: Unverified
+      Expected (std): OPPOSE | Expected (epi): UNCERTAIN
+      Predicted: UNCERTAIN (UNCERTAIN)
+      Error Class: UNCLASSIFIED: Unverified expected=OPPOSE got=UNCERTAIN
+      SS=0.940 MS=0.472 RS=0.058 Opp=0.000
+
+    H-017 Amlodipine -> Lung cancer
+      Category: Unverified
+      Expected (std): OPPOSE | Expected (epi): UNCERTAIN
+      Predicted: UNCERTAIN (UNCERTAIN)
+      Error Class: UNCLASSIFIED: Unverified expected=OPPOSE got=UNCERTAIN
+      SS=0.984 MS=0.434 RS=0.213 Opp=0.000
+
+    H-018 Metoprolol -> Autism spectrum disorder
+      Category: Unverified
+      Expected (std): OPPOSE | Expected (epi): UNCERTAIN
+      Predicted: UNCERTAIN (UNCERTAIN)
+      Error Class: UNCLASSIFIED: Unverified expected=OPPOSE got=UNCERTAIN
+      SS=0.972 MS=0.326 RS=0.213 Opp=0.000
+
+    H-019 Gabapentin -> Pancreatic cancer
+      Category: Unverified
+      Expected (std): OPPOSE | Expected (epi): UNCERTAIN
+      Predicted: UNCERTAIN (UNCERTAIN)
+      Error Class: UNCLASSIFIED: Unverified expected=OPPOSE got=UNCERTAIN
+      SS=0.955 MS=0.000 RS=0.058 Opp=0.000
+
+    H-020 Cetirizine -> Multiple sclerosis
+      Category: Unverified
+      Expected (std): OPPOSE | Expected (epi): UNCERTAIN
+      Predicted: UNCERTAIN (UNCERTAIN)
+      Error Class: UNCLASSIFIED: Unverified expected=OPPOSE got=UNCERTAIN
+      SS=0.985 MS=0.000 RS=0.000 Opp=0.000
+
+    H-021 Montelukast -> Prostate cancer
+      Category: Unverified
+      Expected (std): OPPOSE | Expected (epi): UNCERTAIN
+      Predicted: UNCERTAIN (UNCERTAIN)
+      Error Class: UNCLASSIFIED: Unverified expected=OPPOSE got=UNCERTAIN
+      SS=0.973 MS=0.373 RS=0.213 Opp=0.000
+
+    H-022 Sildenafil -> Amyotrophic lateral sclerosis
+      Category: Unverified
+      Expected (std): OPPOSE | Expected (epi): UNCERTAIN
+      Predicted: UNCERTAIN (UNCERTAIN)
+      Error Class: UNCLASSIFIED: Unverified expected=OPPOSE got=UNCERTAIN
+      SS=0.939 MS=0.000 RS=0.213 Opp=0.000
+
+    H-023 Ranitidine -> Tuberculosis
+      Category: Unverified
+      Expected (std): OPPOSE | Expected (epi): UNCERTAIN
+      Predicted: UNCERTAIN (UNCERTAIN)
+      Error Class: UNCLASSIFIED: Unverified expected=OPPOSE got=UNCERTAIN
+      SS=0.983 MS=0.000 RS=0.213 Opp=0.000
+
+------------------------------------------------------------------------------
+7. PER-CASE RESULTS
+------------------------------------------------------------------------------
+
+  H-001 Metformin -> Type 2 diabetes mellitus
+    Category: Established positive | Status: SUCCESS | Runtime: 0.05s
+    Prediction: SUPPORT (PROMISING)
+    Expected (std): SUPPORT OK | Expected (epi): SUPPORT OK
+    SS=0.986 MS=0.387 RS=0.259 Opp=0.319 (MODERATE)
+    HQT=True | Targets=1 | Primary=P27487
+    Gate: Rule -1 (APPROVED INDICATION): ChEMBL indication data indicates this drug is approved (max_phase_for_ind = 4) for an ind
+
+  H-002 Omeprazole -> Gastroesophageal reflux disease
+    Category: Established positive | Status: SUCCESS | Runtime: 0.04s
+    Prediction: SUPPORT (PROMISING)
+    Expected (std): SUPPORT OK | Expected (epi): SUPPORT OK
+    SS=0.995 MS=0.490 RS=0.000 Opp=0.000 (NONE)
+    HQT=True | Targets=4 | Primary=P20648
+    Gate: Rule -1 (APPROVED INDICATION): ChEMBL indication data indicates this drug is approved (max_phase_for_ind = 4) for an ind
+
+  H-003 Adalimumab -> Crohn disease
+    Category: Established positive | Status: SUCCESS | Runtime: 84.12s
+    Prediction: SUPPORT (PROMISING)
+    Expected (std): SUPPORT OK | Expected (epi): SUPPORT OK
+    SS=0.995 MS=0.490 RS=0.000 Opp=0.000 (NONE)
+    HQT=True | Targets=1 | Primary=P01375
+    Gate: Rule -1 (APPROVED INDICATION): ChEMBL indication data indicates this drug is approved (max_phase_for_ind = 4) for an ind
+
+  H-004 Rituximab -> Non-Hodgkin lymphoma
+    Category: Established positive | Status: SUCCESS | Runtime: 86.33s
+    Prediction: SUPPORT (PROMISING)
+    Expected (std): SUPPORT OK | Expected (epi): SUPPORT OK
+    SS=0.995 MS=0.000 RS=0.000 Opp=0.000 (NONE)
+    HQT=True | Targets=1 | Primary=P11836
+    Gate: Rule -1 (APPROVED INDICATION): ChEMBL indication data indicates this drug is approved (max_phase_for_ind = 4) for an ind
+
+  H-005 Insulin glargine -> Type 1 diabetes mellitus
+    Category: Established positive | Status: SUCCESS | Runtime: 61.36s
+    Prediction: SUPPORT (PROMISING)
+    Expected (std): SUPPORT OK | Expected (epi): SUPPORT OK
+    SS=0.995 MS=0.490 RS=0.000 Opp=0.000 (NONE)
+    HQT=True | Targets=1 | Primary=P06213
+    Gate: Rule -1 (APPROVED INDICATION): ChEMBL indication data indicates this drug is approved (max_phase_for_ind = 4) for an ind
+
+  H-006 Sertraline -> Major depressive disorder
+    Category: Established positive | Status: SUCCESS | Runtime: 90.82s
+    Prediction: SUPPORT (PROMISING)
+    Expected (std): SUPPORT OK | Expected (epi): SUPPORT OK
+    SS=0.996 MS=0.422 RS=0.000 Opp=0.000 (NONE)
+    HQT=True | Targets=5 | Primary=P31645
+    Gate: Rule -1 (APPROVED INDICATION): ChEMBL indication data indicates this drug is approved (max_phase_for_ind = 4) for an ind
+
+  H-007 Methotrexate -> Rheumatoid arthritis
+    Category: Established positive | Status: SUCCESS | Runtime: 99.96s
+    Prediction: SUPPORT (PROMISING)
+    Expected (std): SUPPORT OK | Expected (epi): SUPPORT OK
+    SS=0.989 MS=0.490 RS=0.259 Opp=0.000 (NONE)
+    HQT=True | Targets=3 | Primary=P00374
+    Gate: Rule -1 (APPROVED INDICATION): ChEMBL indication data indicates this drug is approved (max_phase_for_ind = 4) for an ind
+
+  H-008 Doxorubicin -> Breast cancer
+    Category: Established positive | Status: SUCCESS | Runtime: 36.42s
+    Prediction: UNCERTAIN (UNCERTAIN)
+    Expected (std): SUPPORT XX | Expected (epi): SUPPORT XX
+    SS=0.994 MS=0.000 RS=0.000 Opp=0.000 (NONE)
+    HQT=False | Targets=1 | Primary=Q7ZJM1
+    Gate: Rule 5 (UNCERTAIN): Mixed or sparse evidence. SS=0.994, MS=0.000, RS=0.000. Safety grade: A.
+
+  H-009 Hydroxychloroquine -> COVID-19
+    Category: Verified negative | Status: SUCCESS | Runtime: 88.55s
+    Prediction: OPPOSE (NOT_RECOMMENDED)
+    Expected (std): OPPOSE OK | Expected (epi): OPPOSE OK
+    SS=0.986 MS=0.000 RS=0.660 Opp=0.512 (HIGH)
+    HQT=False | Targets=0 | Primary=
+    Gate: Rule 0 (SAFETY VETO): ⚠ Boxed warning / contraindication detected. Risk Score = 0.660. Safety grade: C. NOT RECOMMENDED 
+
+  H-010 Ivermectin -> COVID-19
+    Category: Verified negative | Status: SUCCESS | Runtime: 96.22s
+    Prediction: UNCERTAIN (UNCERTAIN)
+    Expected (std): OPPOSE XX | Expected (epi): OPPOSE XX
+    SS=0.987 MS=0.000 RS=0.000 Opp=0.000 (NONE)
+    HQT=False | Targets=3 | Primary=P91730
+    Gate: Rule 5 (UNCERTAIN): Mixed or sparse evidence. SS=0.987, MS=0.000, RS=0.000. Safety grade: A.
+
+  H-011 Celecoxib -> Alzheimer disease
+    Category: Verified negative | Status: SUCCESS | Runtime: 101.04s
+    Prediction: UNCERTAIN (UNCERTAIN)
+    Expected (std): OPPOSE XX | Expected (epi): OPPOSE XX
+    SS=0.980 MS=0.383 RS=0.058 Opp=0.000 (NONE)
+    HQT=False | Targets=4 | Primary=P35354
+    Gate: Rule 5 (UNCERTAIN): Mixed or sparse evidence. SS=0.980, MS=0.383, RS=0.058. Safety grade: B.
+
+  H-012 Simvastatin -> Sepsis
+    Category: Verified negative | Status: SUCCESS | Runtime: 64.58s
+    Prediction: UNCERTAIN (UNCERTAIN)
+    Expected (std): OPPOSE XX | Expected (epi): OPPOSE XX
+    SS=0.994 MS=0.000 RS=0.000 Opp=0.000 (NONE)
+    HQT=False | Targets=1 | Primary=P04035
+    Gate: Rule 5 (UNCERTAIN): Mixed or sparse evidence. SS=0.994, MS=0.000, RS=0.000. Safety grade: A.
+
+  H-013 Niacin -> Cardiovascular disease
+    Category: Verified negative | Status: SUCCESS | Runtime: 78.46s
+    Prediction: SUPPORT (PROMISING)
+    Expected (std): OPPOSE XX | Expected (epi): OPPOSE XX
+    SS=0.995 MS=0.000 RS=0.259 Opp=0.319 (MODERATE)
+    HQT=True | Targets=4 | Primary=Q80Z39
+    Gate: Rule -1 (APPROVED INDICATION): ChEMBL indication data indicates this drug is approved (max_phase_for_ind = 4) for an ind
+
+  H-014 Dexamethasone -> Traumatic brain injury
+    Category: Verified negative | Status: SUCCESS | Runtime: 101.75s
+    Prediction: UNCERTAIN (UNCERTAIN)
+    Expected (std): OPPOSE XX | Expected (epi): OPPOSE XX
+    SS=0.986 MS=0.490 RS=0.542 Opp=0.319 (MODERATE)
+    HQT=False | Targets=3 | Primary=P04150
+    Gate: Rule 5 (UNCERTAIN): Mixed or sparse evidence. SS=0.986, MS=0.490, RS=0.542. Safety grade: C.
+
+  H-015 Interferon beta-1a -> COVID-19
+    Category: Verified negative | Status: SUCCESS | Runtime: 108.94s
+    Prediction: UNCERTAIN (UNCERTAIN)
+    Expected (std): OPPOSE XX | Expected (epi): OPPOSE XX
+    SS=0.986 MS=0.414 RS=0.000 Opp=0.000 (NONE)
+    HQT=False | Targets=1 | Primary=P17181
+    Gate: Rule 1c (LITERATURE SIGNAL WITHOUT THERAPEUTIC ANCHOR): Support score reflects literature co-mentions (SS = 0.986, from 
+
+  H-016 Omeprazole -> Parkinson disease
+    Category: Unverified | Status: SUCCESS | Runtime: 104.43s
+    Prediction: UNCERTAIN (UNCERTAIN)
+    Expected (std): OPPOSE XX | Expected (epi): UNCERTAIN OK
+    SS=0.940 MS=0.472 RS=0.058 Opp=0.000 (NONE)
+    HQT=False | Targets=4 | Primary=P20648
+    Gate: Rule 1c (LITERATURE SIGNAL WITHOUT THERAPEUTIC ANCHOR): Support score reflects literature co-mentions (SS = 0.940, from 
+
+  H-017 Amlodipine -> Lung cancer
+    Category: Unverified | Status: SUCCESS | Runtime: 63.57s
+    Prediction: UNCERTAIN (UNCERTAIN)
+    Expected (std): OPPOSE XX | Expected (epi): UNCERTAIN OK
+    SS=0.984 MS=0.434 RS=0.213 Opp=0.000 (NONE)
+    HQT=False | Targets=1 | Primary=P25100
+    Gate: Rule 1c (LITERATURE SIGNAL WITHOUT THERAPEUTIC ANCHOR): Support score reflects literature co-mentions (SS = 0.984, from 
+
+  H-018 Metoprolol -> Autism spectrum disorder
+    Category: Unverified | Status: SUCCESS | Runtime: 91.67s
+    Prediction: UNCERTAIN (UNCERTAIN)
+    Expected (std): OPPOSE XX | Expected (epi): UNCERTAIN OK
+    SS=0.972 MS=0.326 RS=0.213 Opp=0.000 (NONE)
+    HQT=False | Targets=5 | Primary=B0FL73
+    Gate: Rule 5 (UNCERTAIN): Mixed or sparse evidence. SS=0.972, MS=0.326, RS=0.213. Safety grade: C.
+
+  H-019 Gabapentin -> Pancreatic cancer
+    Category: Unverified | Status: SUCCESS | Runtime: 100.51s
+    Prediction: UNCERTAIN (UNCERTAIN)
+    Expected (std): OPPOSE XX | Expected (epi): UNCERTAIN OK
+    SS=0.955 MS=0.000 RS=0.058 Opp=0.000 (NONE)
+    HQT=False | Targets=5 | Primary=O95180
+    Gate: Rule 5 (UNCERTAIN): Mixed or sparse evidence. SS=0.955, MS=0.000, RS=0.058. Safety grade: B.
+
+  H-020 Cetirizine -> Multiple sclerosis
+    Category: Unverified | Status: SUCCESS | Runtime: 64.81s
+    Prediction: UNCERTAIN (UNCERTAIN)
+    Expected (std): OPPOSE XX | Expected (epi): UNCERTAIN OK
+    SS=0.985 MS=0.000 RS=0.000 Opp=0.000 (NONE)
+    HQT=False | Targets=5 | Primary=P02768
+    Gate: Rule 5 (UNCERTAIN): Mixed or sparse evidence. SS=0.985, MS=0.000, RS=0.000. Safety grade: A.
+
+  H-021 Montelukast -> Prostate cancer
+    Category: Unverified | Status: SUCCESS | Runtime: 116.21s
+    Prediction: UNCERTAIN (UNCERTAIN)
+    Expected (std): OPPOSE XX | Expected (epi): UNCERTAIN OK
+    SS=0.973 MS=0.373 RS=0.213 Opp=0.000 (NONE)
+    HQT=False | Targets=2 | Primary=Q9Y271
+    Gate: Rule 5 (UNCERTAIN): Mixed or sparse evidence. SS=0.973, MS=0.373, RS=0.213. Safety grade: C.
+
+  H-022 Sildenafil -> Amyotrophic lateral sclerosis
+    Category: Unverified | Status: SUCCESS | Runtime: 99.04s
+    Prediction: UNCERTAIN (UNCERTAIN)
+    Expected (std): OPPOSE XX | Expected (epi): UNCERTAIN OK
+    SS=0.939 MS=0.000 RS=0.213 Opp=0.000 (NONE)
+    HQT=False | Targets=1 | Primary=O76074
+    Gate: Rule 5 (UNCERTAIN): Mixed or sparse evidence. SS=0.939, MS=0.000, RS=0.213. Safety grade: C.
+
+  H-023 Ranitidine -> Tuberculosis
+    Category: Unverified | Status: SUCCESS | Runtime: 41.02s
+    Prediction: UNCERTAIN (UNCERTAIN)
+    Expected (std): OPPOSE XX | Expected (epi): UNCERTAIN OK
+    SS=0.983 MS=0.000 RS=0.213 Opp=0.000 (NONE)
+    HQT=False | Targets=2 | Primary=P25021
+    Gate: Rule 5 (UNCERTAIN): Mixed or sparse evidence. SS=0.983, MS=0.000, RS=0.213. Safety grade: C.
+
+  H-024 Metformin -> Colorectal cancer
+    Category: Weak/indirect | Status: SUCCESS | Runtime: 76.69s
+    Prediction: UNCERTAIN (UNCERTAIN)
+    Expected (std): UNCERTAIN OK | Expected (epi): UNCERTAIN OK
+    SS=0.994 MS=0.393 RS=0.000 Opp=0.000 (NONE)
+    HQT=False | Targets=1 | Primary=P27487
+    Gate: Rule 5 (UNCERTAIN): Mixed or sparse evidence. SS=0.994, MS=0.393, RS=0.000. Safety grade: A.
+
+  H-025 Rapamycin -> Aging
+    Category: Weak/indirect | Status: SUCCESS | Runtime: 108.52s
+    Prediction: UNCERTAIN (UNCERTAIN)
+    Expected (std): UNCERTAIN OK | Expected (epi): UNCERTAIN OK
+    SS=0.993 MS=0.299 RS=0.000 Opp=0.000 (NONE)
+    HQT=False | Targets=2 | Primary=P62942
+    Gate: Rule 5 (UNCERTAIN): Mixed or sparse evidence. SS=0.993, MS=0.299, RS=0.000. Safety grade: A.
+
+  H-026 Valproic acid -> Glioblastoma
+    Category: Weak/indirect | Status: SUCCESS | Runtime: 94.85s
+    Prediction: UNCERTAIN (UNCERTAIN)
+    Expected (std): UNCERTAIN OK | Expected (epi): UNCERTAIN OK
+    SS=0.994 MS=0.000 RS=0.542 Opp=0.266 (LOW)
+    HQT=False | Targets=1 | Primary=P51649
+    Gate: Rule 5 (UNCERTAIN): Mixed or sparse evidence. SS=0.994, MS=0.000, RS=0.542. Safety grade: C.
+
+  H-027 Doxycycline -> Parkinson disease
+    Category: Weak/indirect | Status: SUCCESS | Runtime: 113.22s
+    Prediction: UNCERTAIN (UNCERTAIN)
+    Expected (std): UNCERTAIN OK | Expected (epi): UNCERTAIN OK
+    SS=0.967 MS=0.406 RS=0.213 Opp=0.000 (NONE)
+    HQT=False | Targets=5 | Primary=P09237
+    Gate: Rule 1c (LITERATURE SIGNAL WITHOUT THERAPEUTIC ANCHOR): Support score reflects literature co-mentions (SS = 0.967, from 
+
+  H-028 Thalidomide -> Crohn disease
+    Category: Weak/indirect | Status: SUCCESS | Runtime: 98.27s
+    Prediction: UNCERTAIN (UNCERTAIN)
+    Expected (std): UNCERTAIN OK | Expected (epi): UNCERTAIN OK
+    SS=0.987 MS=0.427 RS=0.000 Opp=0.000 (NONE)
+    HQT=False | Targets=3 | Primary=Q96SW2
+    Gate: Rule 1c (LITERATURE SIGNAL WITHOUT THERAPEUTIC ANCHOR): Support score reflects literature co-mentions (SS = 0.987, from 
+
+  H-029 Niclosamide -> Colorectal cancer
+    Category: Weak/indirect | Status: SUCCESS | Runtime: 93.99s
+    Prediction: UNCERTAIN (UNCERTAIN)
+    Expected (std): UNCERTAIN OK | Expected (epi): UNCERTAIN OK
+    SS=0.984 MS=0.000 RS=0.058 Opp=0.000 (NONE)
+    HQT=False | Targets=0 | Primary=
+    Gate: Rule 5 (UNCERTAIN): Mixed or sparse evidence. SS=0.984, MS=0.000, RS=0.058. Safety grade: B.
+
+  H-030 Disulfiram -> Glioblastoma
+    Category: Weak/indirect | Status: SUCCESS | Runtime: 81.82s
+    Prediction: UNCERTAIN (UNCERTAIN)
+    Expected (std): UNCERTAIN OK | Expected (epi): UNCERTAIN OK
+    SS=0.988 MS=0.364 RS=0.015 Opp=0.000 (NONE)
+    HQT=False | Targets=3 | Primary=P05091
+    Gate: Rule 5 (UNCERTAIN): Mixed or sparse evidence. SS=0.988, MS=0.364, RS=0.015. Safety grade: A.
+
+------------------------------------------------------------------------------
+8. METHODOLOGY
+------------------------------------------------------------------------------
+
+  This evaluation uses a hold-out benchmark of 30 drug-disease pairs
+  that are completely disjoint from the 25-case regression benchmark.
+  Labels are evaluation-only ground truth and are never passed to the
+  reasoning engine. The production pipeline receives only (drug, disease)
+  and returns a recommendation independently of any benchmark label.
+
+  Dual scoring addresses a fundamental epistemic question:
+  Should 'no evidence found' count as a correct negative or as uncertainty?
+
+  Standard scoring (UNKNOWN = NEGATIVE): Penalizes the system for not
+  detecting that a pair is therapeutically invalid. This is the harsher metric.
+
+  Epistemic scoring (UNKNOWN != NEGATIVE): Rewards the system for correctly
+  expressing uncertainty about pairs where evidence simply does not exist.
+  This reflects CYNTHERA's core epistemic principle: absence of evidence
+  is not evidence of absence.

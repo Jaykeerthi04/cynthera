@@ -103,6 +103,64 @@ class CandidateMechanism(BaseModel):
             "Therapeutic direction (SUPPORTS/CONTRADICTS) requires Phase 4C disease-state evidence."
         ),
     )
+    # Phase 5.1: Mechanistic quality audit components
+    structural_edge_count: int = Field(
+        default=0,
+        ge=0,
+        description="Phase 5.1 number of structural (non-causal) edges along the path.",
+    )
+    independent_evidence_groups: int = Field(
+        default=0,
+        ge=0,
+        description="Phase 5.1 number of independent literature source groups supporting this candidate.",
+    )
+    # Phase 5: Directional Mechanism Assessment Layer
+    directional_mechanism_status: str = Field(
+        default="UNKNOWN",
+        description="Phase 5 directional mechanism status: CONSISTENT | CONTRADICTORY | PARTIAL | UNKNOWN",
+    )
+    directional_consistency: bool | None = Field(
+        default=None,
+        description="Phase 5 directional consistency with therapeutic hypothesis: True | False | None",
+    )
+    directional_contradiction_count: int = Field(
+        default=0,
+        ge=0,
+        description="Phase 5 number of explicit signed contradictions along the mechanistic path.",
+    )
+    directional_assessment: dict[str, Any] | None = Field(
+        default=None,
+        description="Phase 5 detailed DirectionalMechanismAssessment serialized dictionary.",
+    )
+    # Phase 5.11: Mechanistic Evidence Quality Components
+    quality_tier: str = Field(
+        default="STRUCTURAL",
+        description="Phase 5.11 internal quality tier: STRUCTURAL | CURATED | CAUSAL | LITERATURE_GROUNDED | INDEPENDENTLY_VALIDATED",
+    )
+    quality_components: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Phase 5.11 detailed evidence quality components matrix.",
+    )
+    # Phase 5.12: Reaction Evidence Aggregation Components
+    reaction_evidence_count: int = Field(
+        default=0,
+        ge=0,
+        description="Total raw reaction records contributing to candidate hops.",
+    )
+    unique_reaction_count: int = Field(
+        default=0,
+        ge=0,
+        description="Unique canonical reactions contributing to candidate hops.",
+    )
+    reaction_independent_groups: int = Field(
+        default=0,
+        ge=0,
+        description="Distinct independent study groups supporting reaction hops.",
+    )
+    reaction_enriched: bool = Field(
+        default=False,
+        description="True if candidate mechanism is backed by canonical reaction evidence.",
+    )
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -146,4 +204,21 @@ class CandidateMechanism(BaseModel):
             "causal_grounding_level": self.causal_grounding_level,
             "grounded_edge_count": self.grounded_edge_count,
             "therapeutic_direction": self.therapeutic_direction,
+            # Phase 5.1 fields
+            "structural_edge_count": self.structural_edge_count,
+            "independent_evidence_groups": self.independent_evidence_groups,
+            # Phase 5 fields
+            "directional_mechanism_status": self.directional_mechanism_status,
+            "directional_consistency": self.directional_consistency,
+            "directional_contradiction_count": self.directional_contradiction_count,
+            "directional_assessment": self.directional_assessment,
+            # Phase 5.11 fields
+            "quality_tier": self.quality_tier,
+            "quality_components": self.quality_components,
+            # Phase 5.12 fields
+            "reaction_evidence_count": self.reaction_evidence_count,
+            "unique_reaction_count": self.unique_reaction_count,
+            "reaction_independent_groups": self.reaction_independent_groups,
+            "reaction_enriched": self.reaction_enriched,
         }
+

@@ -1,0 +1,152 @@
+<USER_REQUEST>
+# CYNTHERA — FINAL TARGETED ACCURACY IMPLEMENTATION
+## IMPLEMENT THE AUDITED ROOT-CAUSE FIXES
+## DO NOT CREATE ANOTHER PHASE / VERSION
+
+The forensic audit is complete.
+
+Current stable state:
+
+    Rule Set 3.2
+    574 tests passed
+    0 failed
+
+Current clean benchmark:
+
+    Standard Accuracy = 44% (11/25)
+    Epistemic Accuracy = 68% (17/25)
+
+The forensic audit identified the following verified root causes:
+
+1. ChEMBL decimal max_phase parsing crash.
+2. Active-form discovery relying on parent molecule_synonyms, which is empty
+   for relevant parent drugs.
+3. Literature claim extraction starvation caused by arbitrary lit_evidence[:10].
+4. Controlled cardiovascular composite indication mapping.
+
+These are the ONLY changes to implement now.
+
+DO NOT:
+- lower opposition thresholds
+- change Rule 1c
+- change Rule 2b
+- change benchmark labels
+- add benchmark-specific rules
+- add case-specific drug/disease logic
+- add a new evidence layer
+- redesign the architecture
+- create another phase/version/roadmap
+- convert COMPLETED trials to opposition without explicit negative outcomes
+- use unrestricted fuzzy/embedding similarity for approval
+- force UNCERTAIN into OPPOSE
+
+============================================================
+FIX 1 — SAFE CHemBL max_phase PARSING
+============================================================
+
+File:
+
+    backend/engineering/retrieval/connectors/chembl.py
+
+Current defect:
+
+    int(raw.get("max_phase") or 0)
+
+fails on values such as:
+
+    "4.0"
+    "3.0"
+
+causing fetch_molecule_details() to return {}.
+
+Change the numeric parsing safely to support integer and decimal string
+representations.
+
+Expected behavior:
+
+    "4.0" -> 4
+    "3.0" -> 3
+    4 -> 4
+    None -> 0
+    malformed/empty -> safe fallback consistent with current behavior
+
+Do not silently interpret malformed values as Phase 4.
+
+Add regression tests.
+
+Verify this restores molecule-level max_phase for:
+
+    Aspirin
+    Tamoxifen
+    Fluti
+<truncated 8606 bytes>
+
+
+    CYN-186 Colchicine -> CRC
+    CYN-200 Escitalopram -> Neuropathic pain
+
+============================================================
+IMPORTANT DECISION RULE
+============================================================
+
+Do NOT force the following to OPPOSE merely to increase benchmark score:
+
+    mixed evidence
+    insufficient evidence
+    absent indication
+    unverified hypothesis
+
+The objective is:
+
+    recover genuine evidence that is currently being missed
+
+not:
+
+    change the decision threshold until benchmark labels match.
+
+============================================================
+FINAL OUTPUT
+============================================================
+
+After implementation return:
+
+# 1. FIXES IMPLEMENTED
+
+# 2. TEST RESULTS
+
+# 3. FINAL STANDARD ACCURACY
+
+# 4. FINAL EPISTEMIC ACCURACY
+
+# 5. NEGATIVE EVIDENCE RECALL
+
+# 6. FALSE-PROMISING RATE
+
+# 7. CASES RECOVERED
+
+# 8. CASES STILL UNCERTAIN
+
+# 9. REMAINING ROOT CAUSES
+
+# 10. BACKEND STATUS
+
+Do not create another phase/version.
+
+If epistemic accuracy reaches >=75% and all regression criteria pass,
+freeze the backend and stop scientific modifications.
+
+The next activity after that is frontend/researcher-facing evidence
+visualization and report generation.
+</USER_REQUEST>
+<ADDITIONAL_METADATA>
+The current local time is: 2026-09-06T19:26:20+05:30.
+
+The user's current state is as follows:
+Active Document: c:\Users\win10\Documents\cynthera\mpp_final\cynthera\evaluation_outputs\25_case\results.jsonl (LANGUAGE_JSON)
+Cursor is on line: 5
+Other open documents:
+- c:\Users\win10\Documents\cynthera\mpp_final\cynthera\evaluation_outputs\25_case\results.jsonl (LANGUAGE_JSON)
+</ADDITIONAL_METADATA>
+<USER_SETTINGS_CHANGE>
+The user changed setting `Model Selection` from Gemini 3.8 Flash (Medium) to Claude Opus 4.6 (Thinking). No need to comment on this change if the user doesn't ask about it. If reporting what model you are, please use a human readable name instead of the exact string.
+</USER_SETTINGS_CHANGE>

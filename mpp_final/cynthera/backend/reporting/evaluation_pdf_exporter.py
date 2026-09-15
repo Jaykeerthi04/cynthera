@@ -223,34 +223,49 @@ class EvaluationPDFExporter:
         story.append(Paragraph("4. Benchmark Case Evaluations", section_style))
         story.append(HRFlowable(width="100%", thickness=0.75, color=colors.HexColor("#e2e8f0")))
 
-        case_headers = ["Case ID", "Drug", "Disease", "Expected", "Predicted", "Target", "Concordance", "Verdict"]
+        case_headers = [
+            "Case ID", "Drug", "Disease", "Expected", "Predicted",
+            "Exp. Target", "Pipeline Target", "Match", "Concordance", "Verdict",
+        ]
         case_rows = [case_headers]
         for cr in self._report.case_results:
             is_pass = cr.is_correct
             status_str = "PASS" if is_pass else ("UNCERTAIN" if cr.predicted_class == BenchmarkClass.UNCERTAIN else "FAIL")
+            # target_match display
+            if cr.target_match is True:
+                match_str = "YES"
+            elif cr.target_match is False:
+                match_str = "NO"
+            else:
+                match_str = "—"
             case_rows.append([
                 cr.case.case_id,
-                cr.case.drug[:15],
-                cr.case.disease[:20],
+                cr.case.drug[:12],
+                cr.case.disease[:18],
                 cr.case.expected_class.value,
                 cr.predicted_class.value,
+                cr.case.expected_target or "—",
                 cr.primary_target or "—",
+                match_str,
                 f"{cr.directional_concordance:.2f}",
                 status_str,
             ])
 
-        t_cases = Table(case_rows, colWidths=[2.5 * cm, 2.5 * cm, 3.5 * cm, 2.2 * cm, 2.2 * cm, 2 * cm, 2 * cm, 1.8 * cm])
+        t_cases = Table(
+            case_rows,
+            colWidths=[2.2 * cm, 2.2 * cm, 3 * cm, 2 * cm, 2 * cm, 2 * cm, 2.2 * cm, 1.3 * cm, 1.8 * cm, 1.5 * cm],
+        )
         t_cases.setStyle(TableStyle([
             ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#312e81")),
             ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
             ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-            ("FONTSIZE", (0, 0), (-1, -1), 7.5),
+            ("FONTSIZE", (0, 0), (-1, -1), 7),
             ("ALIGN", (0, 0), (-1, -1), "LEFT"),
             ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.HexColor("#eef2ff"), colors.white]),
             ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#e2e8f0")),
             ("TOPPADDING", (0, 0), (-1, -1), 3),
             ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
-            ("LEFTPADDING", (0, 0), (-1, -1), 4),
+            ("LEFTPADDING", (0, 0), (-1, -1), 3),
         ]))
         story.append(t_cases)
         story.append(Spacer(1, 0.3 * cm))
@@ -293,18 +308,139 @@ class EvaluationPDFExporter:
             story.append(t_ab)
             story.append(Spacer(1, 0.3 * cm))
 
-        # ── 6. Scientific Interpretation & Reproducibility ───────────────────
-        story.append(Paragraph("6. Interpretation & Limitations", section_style))
+        # ── 6. Contradiction & Conflict Analysis ────────────────────────────
+        if self._report.contradiction_metrics:
+            cm_m = self._report.contradiction_metrics
+            story.append(Paragraph("6. Contradiction & Conflict Resolution Metrics", section_style))
+            story.append(HRFlowable(width="100%", thickness=0.75, color=colors.HexColor("#e2e8f0")))
+
+            det_s = f"{cm_m.contradiction_detection_rate:.1%}" if cm_m.contradiction_detection_rate is not None else "N/A"
+            res_s = f"{cm_m.contradiction_resolution_rate:.1%}" if cm_m.contradiction_resolution_rate is not None else "N/A"
+            bal_s = f"{cm_m.balanced_conflict_insufficient_rate:.1%}" if cm_m.balanced_conflict_insufficient_rate is not None else "N/A"
+            fls_s = f"{cm_m.false_directional_resolution_rate:.1%}" if cm_m.false_directional_resolution_rate is not None else "N/A"
+
+            conflict_data = [
+                ["Metric", "Value", "Scientific Definition"],
+                ["Contradiction Detection Rate", det_s, "Fraction of opposing cases with detected conflicting evidence"],
+                ["Contradiction Resolution Rate", res_s, "Fraction of genuine opposing cases resolved to OPPOSES/NEGATIVE"],
+                ["Balanced Conflict Insufficient Rate", bal_s, "Fraction of balanced conflicts resolved to INSUFFICIENT/UNCERTAIN"],
+                ["False Directional Resolution Rate", fls_s, "Fraction of opposing cases falsely resolved to SUPPORTS/POSITIVE"],
+            ]
+
+            t_conflict = Table(conflict_data, colWidths=[6.5 * cm, 3.5 * cm, 8.5 * cm])
+            t_conflict.setStyle(TableStyle([
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#831843")),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                ("FONTSIZE", (0, 0), (-1, -1), 7.5),
+                ("ALIGN", (0, 0), (-1, -1), "LEFT"),
+                ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.HexColor("#fdf2f8"), colors.white]),
+                ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#e2e8f0")),
+                ("TOPPADDING", (0, 0), (-1, -1), 3),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+                ("LEFTPADDING", (0, 0), (-1, -1), 4),
+            ]))
+            story.append(t_conflict)
+            story.append(Spacer(1, 0.3 * cm))
+
+        # ── 7. Scientific Interpretation & Reproducibility ───────────────────
+        story.append(Paragraph("7. Interpretation &amp; Limitations", section_style))
         story.append(HRFlowable(width="100%", thickness=0.75, color=colors.HexColor("#e2e8f0")))
         story.append(Paragraph(
             "<b>Observed Findings:</b> Directional alignment enables disambiguation between therapeutic agonists "
             "and antagonists on shared targets, resolving false-positive connectivity errors present in naive target-existence baselines.<br/>"
-            "<b>Methodological Limitations:</b> The initial benchmark dataset contains a restricted set of directional negative controls. "
-            "Concordance ratio measures directional consensus rather than statistical sample size. Expanding the benchmark cohort to 50+ pairs "
-            "is recommended prior to formal publication claims.",
+            "<b>Contradiction Awareness:</b> Explicit detection of pharmacological counter-indications (e.g. muscarinic agonism in asthma, "
+            "beta-agonism in hypertension, androgen agonism in prostate cancer) prevents dangerous false-positive recommendations.<br/>"
+            "<b>Methodological Limitations:</b> The benchmark dataset contains machine-readable ground truth controls. "
+            "Concordance ratio measures directional consensus rather than statistical sample size.",
             body_style,
         ))
         story.append(Spacer(1, 0.4 * cm))
+
+        # ── 8. Statistical Uncertainty (Bootstrap CI) ────────────────────────
+        if self._report.final_test_metrics_with_ci is not None:
+            ci_m = self._report.final_test_metrics_with_ci
+            story.append(Paragraph("8. Statistical Uncertainty — Bootstrap Confidence Intervals", section_style))
+            story.append(HRFlowable(width="100%", thickness=0.75, color=colors.HexColor("#e2e8f0")))
+
+            def _fmt_ci(ci: tuple[float, float] | None, point: float | None) -> str:
+                if ci is None or point is None:
+                    return "N/A"
+                return f"{point:.1%} [{ci[0]:.1%}, {ci[1]:.1%}]"
+
+            ci_data = [
+                ["Metric", "Point Estimate [95% CI]"],
+                ["Accuracy", _fmt_ci(ci_m.accuracy_ci, ci_m.accuracy)],
+                ["Precision", _fmt_ci(ci_m.precision_ci, ci_m.precision)],
+                ["Recall / Sensitivity", _fmt_ci(ci_m.recall_ci, ci_m.recall)],
+                ["Specificity", _fmt_ci(ci_m.specificity_ci, ci_m.specificity)],
+                ["Matthews Correlation (MCC)", _fmt_ci(ci_m.mcc_ci, ci_m.mcc)],
+            ]
+            t_ci = Table(ci_data, colWidths=[6 * cm, 9.5 * cm])
+            t_ci.setStyle(TableStyle([
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1e3a5f")),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                ("FONTSIZE", (0, 0), (-1, -1), 8),
+                ("ALIGN", (0, 0), (-1, -1), "LEFT"),
+                ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.HexColor("#f0f4ff"), colors.white]),
+                ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#e2e8f0")),
+                ("TOPPADDING", (0, 0), (-1, -1), 4),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+                ("LEFTPADDING", (0, 0), (-1, -1), 6),
+            ]))
+            story.append(t_ci)
+            n_test = ci_m.total_cases
+            story.append(Spacer(1, 0.15 * cm))
+            story.append(Paragraph(
+                f"CIs computed via {ci_m.n_bootstrap} bootstrap resamples (seed=42) of {n_test} TEST-split cases. "
+                f"CI level: {ci_m.ci_level:.0%}. Wider intervals reflect smaller sample size — "
+                f"results should be interpreted with appropriate caution.",
+                caption_style,
+            ))
+            story.append(Spacer(1, 0.3 * cm))
+
+        # ── 9. Calibration Summary ───────────────────────────────────────────
+        if self._report.calibration_summary:
+            story.append(Paragraph("9. Weight Calibration Summary (DEV Split)", section_style))
+            story.append(HRFlowable(width="100%", thickness=0.75, color=colors.HexColor("#e2e8f0")))
+
+            cal = self._report.calibration_summary
+            cal_data = [["Configuration", "Direct", "Curated", "Inferred", "DEV MCC", "Selected?"]]
+            best_cfg = cal.get("best_config", "")
+            for cfg_name, vals in cal.items():
+                if cfg_name in ("best_config", "calibration_note"):
+                    continue
+                if not isinstance(vals, dict):
+                    continue
+                selected = "YES" if cfg_name == best_cfg else ""
+                cal_data.append([
+                    cfg_name,
+                    str(vals.get("direct", "—")),
+                    str(vals.get("curated", "—")),
+                    str(vals.get("inferred", "—")),
+                    f"{vals.get('dev_mcc', 0):.4f}" if vals.get('dev_mcc') is not None else "N/A",
+                    selected,
+                ])
+            if len(cal_data) > 1:
+                t_cal = Table(cal_data, colWidths=[4 * cm, 2.5 * cm, 2.5 * cm, 2.5 * cm, 3 * cm, 2.5 * cm])
+                t_cal.setStyle(TableStyle([
+                    ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#4c1d95")),
+                    ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                    ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                    ("FONTSIZE", (0, 0), (-1, -1), 8),
+                    ("ALIGN", (0, 0), (-1, -1), "LEFT"),
+                    ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.HexColor("#f5f3ff"), colors.white]),
+                    ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#e2e8f0")),
+                    ("TOPPADDING", (0, 0), (-1, -1), 4),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 6),
+                ]))
+                story.append(t_cal)
+                note = cal.get("calibration_note", "Calibration performed on DEVELOPMENT split only. TEST labels not used.")
+                story.append(Spacer(1, 0.15 * cm))
+                story.append(Paragraph(note, caption_style))
+                story.append(Spacer(1, 0.3 * cm))
 
         doc.build(story)
         return buffer.getvalue()

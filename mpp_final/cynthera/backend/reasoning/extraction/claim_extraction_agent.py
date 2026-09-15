@@ -34,9 +34,18 @@ EXTRACTION_PROMPT_V1 = """You are a biomedical claim extraction system. Extract 
 
 For each claim, extract:
 1. subject: The entity performing the action (drug name, gene symbol, protein name)
-2. predicate: One of: ACTIVATES, INHIBITS, BINDS, UPREGULATES, DOWNREGULATES, CAUSES, PREVENTS, ASSOCIATED_WITH, NO_EFFECT
-3. object: The entity receiving the action (target, pathway, disease)
+2. predicate: One of:
+   Mechanistic: ACTIVATES, INHIBITS, BINDS, UPREGULATES, DOWNREGULATES, CAUSES, PREVENTS, ASSOCIATED_WITH, NO_EFFECT
+   Therapeutic outcome: FAILED_TO_IMPROVE, NO_SIGNIFICANT_BENEFIT, TERMINATED_FOR_FUTILITY, TERMINATED_FOR_SAFETY, WORSENED_OUTCOME, CONTRAINDICATED
+   Use therapeutic predicates ONLY when the text explicitly states a clinical or experimental outcome for a specific disease.
+3. object: The entity receiving the action (target, pathway, or DISEASE NAME for therapeutic predicates)
 4. confidence: Float 0.0–1.0 indicating extraction confidence
+
+Examples of therapeutic opposition extraction:
+- "Azithromycin did not reduce mortality in COVID-19 patients" → {"subject": "azithromycin", "predicate": "FAILED_TO_IMPROVE", "object": "COVID-19", "confidence": 0.90}
+- "The trial was stopped early for futility" → {"subject": "[drug]", "predicate": "TERMINATED_FOR_FUTILITY", "object": "[disease]", "confidence": 0.85}
+- "No significant benefit was observed" → {"subject": "[drug]", "predicate": "NO_SIGNIFICANT_BENEFIT", "object": "[disease]", "confidence": 0.80}
+- "Hydroxychloroquine was contraindicated in cardiac patients" → {"subject": "hydroxychloroquine", "predicate": "CONTRAINDICATED", "object": "cardiac disease", "confidence": 0.85}
 
 Return ONLY a valid JSON array of objects with keys: subject, predicate, object, confidence.
 Return empty array [] if no clear biological claims are present.
@@ -45,6 +54,17 @@ TEXT:
 {text}
 
 JSON OUTPUT:"""
+
+# Negative predicate names for quick membership test
+NEGATIVE_PREDICATE_NAMES: frozenset[str] = frozenset({
+    "FAILED_TO_IMPROVE",
+    "NO_SIGNIFICANT_BENEFIT",
+    "TERMINATED_FOR_FUTILITY",
+    "TERMINATED_FOR_SAFETY",
+    "WORSENED_OUTCOME",
+    "CONTRAINDICATED",
+})
+
 
 
 class ClaimExtractionAgent:
@@ -518,6 +538,14 @@ class ClaimExtractionAgent:
         the audit report. The _last_extraction_method field on the agent is set to
         'rule_based_fallback' before this method is called, enabling upstream disclosure.
 
+        Negative patterns fire ONLY when drug_name appears in the text, to prevent
+        false opposition from generic negation sentences unrelated to our drug.
+
+        Phase 5.17 fix: Positive patterns are checked against a negation context guard.
+        If a positive keyword (e.g. "prevent") is preceded by a negation phrase within
+        a 40-character window (e.g. "did not prevent", "failed to prevent"), the positive
+        match is suppressed and may resolve to a negative claim instead.
+
         Args:
             text: Abstract text to scan.
             drug_name: Drug name for subject/object labeling.
@@ -530,22 +558,99 @@ class ClaimExtractionAgent:
         text_lower = text.lower()
         drug_lower = drug_name.lower()
         disease_lower = disease_name.lower()
+        drug_present = drug_lower in text_lower
 
         # Determine the primary object: disease name if mentioned, else generic "target"
         primary_object = disease_name if disease_lower in text_lower else "molecular target"
 
+        # ── Negation context guard (Phase 5.17) ──────────────────────────────────
+        # Returns True if a positive keyword at `idx` is preceded by a negation phrase,
+        # meaning the positive claim should NOT be produced (it is a negated assertion).
+        _NEGATION_PREFIXES = (
+            "did not", "does not", "do not", "failed to", "unable to",
+            "no evidence", "no significant", "no meaningful", "no benefit",
+            "not effective", "not shown to", "no effect", "without",
+            "never", "not ", "fails to", "failure to",
+        )
+
+        def _is_negated_at(text_l: str, keyword: str) -> bool:
+            """Return True if `keyword` appears in `text_l` and is preceded by a negation."""
+            idx = text_l.find(keyword)
+            while idx != -1:
+                # Inspect the 45-character window before the match
+                prefix = text_l[max(0, idx - 45): idx]
+                if any(neg in prefix for neg in _NEGATION_PREFIXES):
+                    return True
+                idx = text_l.find(keyword, idx + 1)
+            return False
+
+        # ── Negative therapeutic patterns (checked first, higher specificity) ────
+        # Only fire when drug is explicitly mentioned to avoid false positives.
+        if drug_present:
+            negative_patterns = [
+                ("failed to improve", "FAILED_TO_IMPROVE"),
+                ("failed to demonstrate efficacy", "FAILED_TO_IMPROVE"),
+                ("failed to demonstrate", "FAILED_TO_IMPROVE"),
+                ("no significant benefit", "NO_SIGNIFICANT_BENEFIT"),
+                ("no meaningful improvement", "NO_SIGNIFICANT_BENEFIT"),
+                ("no meaningful benefit", "NO_SIGNIFICANT_BENEFIT"),
+                ("did not improve", "FAILED_TO_IMPROVE"),
+                ("did not reduce", "FAILED_TO_IMPROVE"),
+                ("did not decrease", "FAILED_TO_IMPROVE"),
+                ("did not prevent", "FAILED_TO_IMPROVE"),         # Phase 5.17: negated positive
+                ("failed to prevent", "FAILED_TO_IMPROVE"),       # Phase 5.17: negated positive
+                ("no significant reduction", "FAILED_TO_IMPROVE"),# Phase 5.17
+                ("no evidence of efficacy", "FAILED_TO_IMPROVE"), # Phase 5.17
+                ("no evidence of benefit", "FAILED_TO_IMPROVE"),  # Phase 5.17
+                ("no benefit was observed", "FAILED_TO_IMPROVE"), # Phase 5.17
+                ("did not significantly reduce", "FAILED_TO_IMPROVE"),  # Phase 5.17
+                ("no significant difference", "NO_SIGNIFICANT_BENEFIT"),
+                ("no significant effect", "NO_SIGNIFICANT_BENEFIT"),
+                ("lack of efficacy", "FAILED_TO_IMPROVE"),
+                ("lack of benefit", "FAILED_TO_IMPROVE"),
+                ("ineffective", "FAILED_TO_IMPROVE"),
+                ("futility", "TERMINATED_FOR_FUTILITY"),
+                ("terminated for futility", "TERMINATED_FOR_FUTILITY"),
+                ("terminated due to futility", "TERMINATED_FOR_FUTILITY"),
+                ("stopped early for futility", "TERMINATED_FOR_FUTILITY"),
+                ("terminated for safety", "TERMINATED_FOR_SAFETY"),
+                ("terminated due to safety", "TERMINATED_FOR_SAFETY"),
+                ("stopped for safety", "TERMINATED_FOR_SAFETY"),
+                ("worsened", "WORSENED_OUTCOME"),
+                ("worsening", "WORSENED_OUTCOME"),
+                ("contraindicated", "CONTRAINDICATED"),
+                ("contraindication", "CONTRAINDICATED"),
+            ]
+            for pattern, predicate in negative_patterns:
+                if pattern in text_lower:
+                    claims.append({
+                        "subject": drug_name,
+                        "predicate": predicate,
+                        "object": primary_object,
+                        "confidence": 0.30,  # Low confidence for rule-based extraction
+                    })
+                    return claims
+
+        # ── Positive mechanistic patterns ────────────────────────────────────────
+        # Phase 5.17: each positive pattern is checked against the negation guard.
+        # If the keyword appears only in negated context (e.g. "did not prevent"),
+        # skip it to avoid inverting a negative trial into a positive claim.
         patterns = [
             ("inhibit", "INHIBITS"),
             ("activat", "ACTIVATES"),
             ("upregulat", "UPREGULATES"),
             ("downregulat", "DOWNREGULATES"),
             ("prevent", "PREVENTS"),
+            ("improv", "IMPROVES"),
             ("associat", "ASSOCIATED_WITH"),
             ("bind", "BINDS"),
             ("caus", "CAUSES"),
         ]
         for pattern, predicate in patterns:
             if pattern in text_lower:
+                # Skip if every occurrence of this keyword is in a negated context
+                if _is_negated_at(text_lower, pattern):
+                    continue
                 # Use drug name as subject if found in text, else fallback to "compound"
                 subject = drug_name if drug_lower in text_lower else "compound"
                 claims.append({

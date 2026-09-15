@@ -14,14 +14,13 @@ Reference: Phase 2 — Advanced conflict resolution
 from __future__ import annotations
 
 import logging
-import uuid
 from dataclasses import dataclass, field
-from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 from backend.core.domain.claim import Claim
 from backend.core.domain.contradiction import Contradiction
 from backend.core.enums.predicate_type import PredicateType
+from backend.reasoning.conflict.evidence_weighting import compute_claim_weight
 
 # Phase 4B: Canonical entity gating — only imported when resolver is provided
 if TYPE_CHECKING:
@@ -31,25 +30,6 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# ─────────────────────────────────────────────
-# Study Type Weights
-# ─────────────────────────────────────────────
-
-# Maps evidence type strings to quality multipliers
-_EVIDENCE_TYPE_WEIGHTS: dict[str, float] = {
-    "META_ANALYSIS": 1.0,
-    "SYSTEMATIC_REVIEW": 0.95,
-    "RCT": 0.9,
-    "COHORT_STUDY": 0.75,
-    "CASE_CONTROL": 0.65,
-    "CASE_REPORT": 0.4,
-    "EXPERT_OPINION": 0.3,
-    "IN_VITRO": 0.5,
-    "IN_VIVO": 0.55,
-    "COMPUTATIONAL": 0.35,
-    "UNKNOWN": 0.5,
-}
-
 # Conflict predicate pairs (A contradicts B and vice versa)
 _CONFLICT_PAIRS: list[tuple[PredicateType, PredicateType]] = [
     (PredicateType.ACTIVATES, PredicateType.INHIBITS),
@@ -57,9 +37,6 @@ _CONFLICT_PAIRS: list[tuple[PredicateType, PredicateType]] = [
     (PredicateType.CAUSES, PredicateType.PREVENTS),
     (PredicateType.BINDS, PredicateType.INHIBITS),
 ]
-
-# Current year for recency calculation
-_CURRENT_YEAR: int = datetime.utcnow().year
 
 
 @dataclass
@@ -290,31 +267,10 @@ class AdvancedConflictResolver:
     def _compute_claim_weight(self, claim: Claim) -> float:
         """Compute a weighted quality score for a claim.
 
+        Delegates to shared evidence_weighting.compute_claim_weight.
         Factors: ERW value × evidence_type_weight × recency_factor
         """
-        # Base: ERW evidence reliability weight
-        erw = claim.erw.value
-
-        # Evidence type weight
-        ev_type = "UNKNOWN"
-        if hasattr(claim, "evidence_type") and claim.evidence_type:
-            ev_type = str(claim.evidence_type).upper().replace(" ", "_")
-        type_weight = _EVIDENCE_TYPE_WEIGHTS.get(ev_type, 0.5)
-
-        # Recency factor: claims from within 5 years get a 1.0–1.2 multiplier
-        recency_factor = 1.0
-        if hasattr(claim, "publication_year") and claim.publication_year:
-            age = _CURRENT_YEAR - int(claim.publication_year)
-            if age <= 2:
-                recency_factor = 1.2
-            elif age <= 5:
-                recency_factor = 1.1
-            elif age <= 10:
-                recency_factor = 1.0
-            else:
-                recency_factor = max(0.7, 1.0 - (age - 10) * 0.02)
-
-        return round(erw * type_weight * recency_factor, 4)
+        return compute_claim_weight(claim)
 
     def _resolve_pair(
         self,

@@ -36,6 +36,29 @@ class ChEMBLConnector(BaseConnector):
     base_url = CHEMBL_BASE
     timeout_seconds = 30.0
 
+    @staticmethod
+    def _safe_parse_phase(raw_value: Any) -> int:
+        """Safely parse a ChEMBL max_phase value to an integer.
+
+        ChEMBL API may return max_phase as an int, a float string (e.g. "4.0"),
+        None, or a malformed value.  This method handles all cases gracefully:
+          "4.0" -> 4,  "3.0" -> 3,  4 -> 4,  None -> 0,  malformed -> 0
+
+        Malformed values are never silently interpreted as Phase 4.
+        Result is clamped to [0, 4].
+        """
+        if raw_value is None:
+            return 0
+        try:
+            return max(0, min(4, int(float(raw_value))))
+        except (TypeError, ValueError):
+            logger.warning(
+                "chembl_phase_unparseable",
+                extra={"raw_value": raw_value},
+            )
+            return 0
+
+
     async def fetch(self, chembl_id: str, limit: int = 100) -> dict[str, Any]:
         """Fetch bioactivity records for a ChEMBL compound.
 
@@ -97,7 +120,7 @@ class ChEMBLConnector(BaseConnector):
             url = f"{self.base_url}/molecule/{chembl_id}.json"
             raw = await self._get(url)
             return {
-                "max_phase": int(raw.get("max_phase") or 0),
+                "max_phase": self._safe_parse_phase(raw.get("max_phase")),
                 "pref_name": raw.get("pref_name") or "",
                 "molecule_type": raw.get("molecule_type") or "",
                 "therapeutic_flag": bool(raw.get("therapeutic_flag", False)),
@@ -152,13 +175,26 @@ class ChEMBLConnector(BaseConnector):
             raw = await self._get(url, params=params)
             indications = []
             for ind in raw.get("drug_indications", []):
-                max_phase = ind.get("max_phase_for_ind")
+                # ChEMBL currently serializes this value as strings such as
+                # ``"4.0"``.  Parsing it with int() rejects the whole response
+                # and previously made disease-matched approvals disappear.
+                # An invalid *individual* row is treated as phase 0 rather than
+                # discarding other well-formed indication records.
+                raw_phase = ind.get("max_phase_for_ind")
+                try:
+                    max_phase = int(float(raw_phase)) if raw_phase is not None else 0
+                except (TypeError, ValueError):
+                    logger.warning(
+                        "chembl_indication_phase_unparseable",
+                        extra={"chembl_id": chembl_id, "raw_phase": raw_phase},
+                    )
+                    max_phase = 0
                 indications.append({
                     "efo_id": ind.get("efo_id", ""),
                     "efo_term": (ind.get("efo_term") or "").lower(),
                     "mesh_id": ind.get("mesh_id", ""),
                     "mesh_heading": (ind.get("mesh_heading") or "").lower(),
-                    "max_phase_for_ind": int(max_phase) if max_phase is not None else 0,
+                    "max_phase_for_ind": max(0, min(4, max_phase)),
                     "indication_refs": ind.get("indication_refs", []),
                 })
             logger.info(

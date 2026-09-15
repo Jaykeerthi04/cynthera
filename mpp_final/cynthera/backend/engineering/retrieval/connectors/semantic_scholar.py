@@ -85,10 +85,22 @@ class SemanticScholarConnector(BaseConnector):
                 await asyncio.sleep(wait_time)
             SemanticScholarConnector._last_request_time = time.monotonic()
 
+    _circuit_open_until: float = 0.0
+
     async def _get(self, url: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
-        """Execute a GET request with rate-limiting delay and retry logic."""
+        """Execute a GET request with rate-limiting delay and circuit breaker."""
+        import time
+        from backend.core.exceptions import SourceUnavailableError
+        now = time.monotonic()
+        if now < SemanticScholarConnector._circuit_open_until:
+            raise SourceUnavailableError("semantic_scholar rate-limited (circuit breaker open)")
         await self._rate_limit()
-        return await super()._get(url, params=params)
+        try:
+            return await super()._get(url, params=params)
+        except Exception as exc:
+            if "429" in str(exc):
+                SemanticScholarConnector._circuit_open_until = time.monotonic() + 300.0
+            raise
 
     async def fetch(self, **kwargs: Any) -> dict[str, Any]:
         """Fetch raw data from the Semantic Scholar API.

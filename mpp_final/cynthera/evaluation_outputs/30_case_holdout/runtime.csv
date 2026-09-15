@@ -1,0 +1,31 @@
+case_id,drug,disease,category,status,prediction,expected_std,expected_epi,runtime_seconds,support_score,mechanistic_score,risk_score,opposition_score,has_hqt,cache_hit
+H-001,Metformin,Type 2 diabetes mellitus,Established positive,SUCCESS,SUPPORT,SUPPORT,SUPPORT,0.05,0.9861,0.3866,0.2592,0.3187,True,True
+H-002,Omeprazole,Gastroesophageal reflux disease,Established positive,SUCCESS,SUPPORT,SUPPORT,SUPPORT,0.04,0.9954,0.49,0.0,0.0,True,True
+H-003,Adalimumab,Crohn disease,Established positive,SUCCESS,SUPPORT,SUPPORT,SUPPORT,84.12,0.9948,0.49,0.0,0.0,True,False
+H-004,Rituximab,Non-Hodgkin lymphoma,Established positive,SUCCESS,SUPPORT,SUPPORT,SUPPORT,86.33,0.9948,0.0,0.0,0.0,True,False
+H-005,Insulin glargine,Type 1 diabetes mellitus,Established positive,SUCCESS,SUPPORT,SUPPORT,SUPPORT,61.36,0.9948,0.49,0.0,0.0,True,False
+H-006,Sertraline,Major depressive disorder,Established positive,SUCCESS,SUPPORT,SUPPORT,SUPPORT,90.82,0.9955,0.4224,0.0,0.0,True,False
+H-007,Methotrexate,Rheumatoid arthritis,Established positive,SUCCESS,SUPPORT,SUPPORT,SUPPORT,99.96,0.9886,0.49,0.2592,0.0,True,False
+H-008,Doxorubicin,Breast cancer,Established positive,SUCCESS,UNCERTAIN,SUPPORT,SUPPORT,36.42,0.9942,0.0,0.0,0.0,False,False
+H-009,Hydroxychloroquine,COVID-19,Verified negative,SUCCESS,OPPOSE,OPPOSE,OPPOSE,88.55,0.9856,0.0,0.6604,0.512,False,False
+H-010,Ivermectin,COVID-19,Verified negative,SUCCESS,UNCERTAIN,OPPOSE,OPPOSE,96.22,0.9871,0.0,0.0,0.0,False,False
+H-011,Celecoxib,Alzheimer disease,Verified negative,SUCCESS,UNCERTAIN,OPPOSE,OPPOSE,101.04,0.9801,0.3826,0.0582,0.0,False,False
+H-012,Simvastatin,Sepsis,Verified negative,SUCCESS,UNCERTAIN,OPPOSE,OPPOSE,64.58,0.9937,0.0,0.0,0.0,False,False
+H-013,Niacin,Cardiovascular disease,Verified negative,SUCCESS,SUPPORT,OPPOSE,OPPOSE,78.46,0.9954,0.0,0.2592,0.3187,True,False
+H-014,Dexamethasone,Traumatic brain injury,Verified negative,SUCCESS,UNCERTAIN,OPPOSE,OPPOSE,101.75,0.9862,0.49,0.5416,0.3187,False,False
+H-015,Interferon beta-1a,COVID-19,Verified negative,SUCCESS,UNCERTAIN,OPPOSE,OPPOSE,108.94,0.9861,0.4136,0.0,0.0,False,False
+H-016,Omeprazole,Parkinson disease,Unverified,SUCCESS,UNCERTAIN,OPPOSE,UNCERTAIN,104.43,0.9404,0.4716,0.0582,0.0,False,False
+H-017,Amlodipine,Lung cancer,Unverified,SUCCESS,UNCERTAIN,OPPOSE,UNCERTAIN,63.57,0.9838,0.4341,0.2134,0.0,False,False
+H-018,Metoprolol,Autism spectrum disorder,Unverified,SUCCESS,UNCERTAIN,OPPOSE,UNCERTAIN,91.67,0.9717,0.3263,0.2134,0.0,False,False
+H-019,Gabapentin,Pancreatic cancer,Unverified,SUCCESS,UNCERTAIN,OPPOSE,UNCERTAIN,100.51,0.9545,0.0,0.0582,0.0,False,False
+H-020,Cetirizine,Multiple sclerosis,Unverified,SUCCESS,UNCERTAIN,OPPOSE,UNCERTAIN,64.81,0.9849,0.0,0.0,0.0,False,False
+H-021,Montelukast,Prostate cancer,Unverified,SUCCESS,UNCERTAIN,OPPOSE,UNCERTAIN,116.21,0.973,0.3735,0.2134,0.0,False,False
+H-022,Sildenafil,Amyotrophic lateral sclerosis,Unverified,SUCCESS,UNCERTAIN,OPPOSE,UNCERTAIN,99.04,0.9386,0.0,0.2134,0.0,False,False
+H-023,Ranitidine,Tuberculosis,Unverified,SUCCESS,UNCERTAIN,OPPOSE,UNCERTAIN,41.02,0.9831,0.0,0.2134,0.0,False,False
+H-024,Metformin,Colorectal cancer,Weak/indirect,SUCCESS,UNCERTAIN,UNCERTAIN,UNCERTAIN,76.69,0.9939,0.3929,0.0,0.0,False,False
+H-025,Rapamycin,Aging,Weak/indirect,SUCCESS,UNCERTAIN,UNCERTAIN,UNCERTAIN,108.52,0.9934,0.2993,0.0,0.0,False,False
+H-026,Valproic acid,Glioblastoma,Weak/indirect,SUCCESS,UNCERTAIN,UNCERTAIN,UNCERTAIN,94.85,0.9937,0.0,0.5416,0.2656,False,False
+H-027,Doxycycline,Parkinson disease,Weak/indirect,SUCCESS,UNCERTAIN,UNCERTAIN,UNCERTAIN,113.22,0.9669,0.4063,0.2134,0.0,False,False
+H-028,Thalidomide,Crohn disease,Weak/indirect,SUCCESS,UNCERTAIN,UNCERTAIN,UNCERTAIN,98.27,0.9871,0.4273,0.0,0.0,False,False
+H-029,Niclosamide,Colorectal cancer,Weak/indirect,SUCCESS,UNCERTAIN,UNCERTAIN,UNCERTAIN,93.99,0.9844,0.0,0.0582,0.0,False,False
+H-030,Disulfiram,Glioblastoma,Weak/indirect,SUCCESS,UNCERTAIN,UNCERTAIN,UNCERTAIN,81.82,0.9876,0.3643,0.0147,0.0,False,False

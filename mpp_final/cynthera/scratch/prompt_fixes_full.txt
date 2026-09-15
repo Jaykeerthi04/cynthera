@@ -1,0 +1,474 @@
+<USER_REQUEST>
+# CYNTHERA — FINAL TARGETED ACCURACY IMPLEMENTATION
+## IMPLEMENT THE AUDITED ROOT-CAUSE FIXES
+## DO NOT CREATE ANOTHER PHASE / VERSION
+
+The forensic audit is complete.
+
+Current stable state:
+
+    Rule Set 3.2
+    574 tests passed
+    0 failed
+
+Current clean benchmark:
+
+    Standard Accuracy = 44% (11/25)
+    Epistemic Accuracy = 68% (17/25)
+
+The forensic audit identified the following verified root causes:
+
+1. ChEMBL decimal max_phase parsing crash.
+2. Active-form discovery relying on parent molecule_synonyms, which is empty
+   for relevant parent drugs.
+3. Literature claim extraction starvation caused by arbitrary lit_evidence[:10].
+4. Controlled cardiovascular composite indication mapping.
+
+These are the ONLY changes to implement now.
+
+DO NOT:
+- lower opposition thresholds
+- change Rule 1c
+- change Rule 2b
+- change benchmark labels
+- add benchmark-specific rules
+- add case-specific drug/disease logic
+- add a new evidence layer
+- redesign the architecture
+- create another phase/version/roadmap
+- convert COMPLETED trials to opposition without explicit negative outcomes
+- use unrestricted fuzzy/embedding similarity for approval
+- force UNCERTAIN into OPPOSE
+
+============================================================
+FIX 1 — SAFE CHemBL max_phase PARSING
+============================================================
+
+File:
+
+    backend/engineering/retrieval/connectors/chembl.py
+
+Current defect:
+
+    int(raw.get("max_phase") or 0)
+
+fails on values such as:
+
+    "4.0"
+    "3.0"
+
+causing fetch_molecule_details() to return {}.
+
+Change the numeric parsing safely to support integer and decimal string
+representations.
+
+Expected behavior:
+
+    "4.0" -> 4
+    "3.0" -> 3
+    4 -> 4
+    None -> 0
+    malformed/empty -> safe fallback consistent with current behavior
+
+Do not silently interpret malformed values as Phase 4.
+
+Add regression tests.
+
+Verify this restores molecule-level max_phase for:
+
+    Aspirin
+    Tamoxifen
+    Fluticasone
+
+and does not affect unrelated molecule metadata.
+
+============================================================
+FIX 2 — ACTIVE-FORM DISCOVERY USING CHEMBL SEARCH
+============================================================
+
+The current active-form logic incorrectly relies on:
+
+    parent molecule_synonyms
+
+The forensic audit established that relevant active forms are not reliably
+present there.
+
+Implement active-form discovery using the existing ChEMBL connector's
+search capability / preferred-name prefix query.
+
+For a parent drug name such as:
+
+    Fluticasone
+
+discover related active forms such as:
+
+    Fluticasone Propionate
+    Fluticasone Furoate
+
+For:
+
+    Tamoxifen
+
+discover relevant active forms such as:
+
+    Tamoxifen Citrate
+
+Requirements:
+
+1. No hardcoded benchmark drug names.
+2. Use the existing ChEMBL connector.
+3. Search dynamically using parent-name relationship.
+4. Validate discovered candidates before using them.
+5. Preserve provenance indicating which molecular form supplied the indication.
+6. Avoid unrelated molecules that merely share a loose string.
+7. Do not automatically copy every active-form indication to the parent.
+8. Only use an active-form indication when it is semantically applicable to
+   the queried parent drug.
+
+For active-form candidates, verify:
+
+    preferred_name starts with parent drug name
+    AND
+    candidate is a plausible form/derivative of the parent
+    AND
+    relevant indication matches the queried disease
+
+Do not use unrestricted fuzzy matching.
+
+Regression tests must include:
+
+    Fluticasone -> Allergic rhinitis
+        therapeutic anchor should be recognized
+
+    Tamoxifen -> ER-positive breast cancer
+        therapeutic anchor should be recognized
+
+Anti-regression:
+
+    Colchicine -> Colorectal cancer
+        must remain unanchored
+
+    Escitalopram -> Neuropathic pain
+        must remain unanchored
+
+============================================================
+FIX 3 — CLAIM EXTRACTION PRIORITIZATION
+============================================================
+
+This is the highest-priority negative-evidence repair.
+
+Verified root cause:
+
+    _extract_all_claims()
+    uses lit_evidence[:10]
+
+The evidence list contains generic OpenAlex disease reviews ahead of
+pair-specific trial papers.
+
+This causes clinically important negative publications to be retrieved
+but never passed to the claim extractor.
+
+Known examples:
+
+    Fluvoxamine -> COVID-19
+        ACTIV-6 / related trial publications later in evidence list
+
+    Aspirin -> COVID-19
+        RECOVERY trial later in evidence list
+
+    Atorvastatin -> Alzheimer
+        LEADe trial later in evidence list
+
+DO NOT simply increase the slice to [:50].
+
+Instead implement a deterministic evidence-prioritization step before
+claim extraction.
+
+Priority should favor, in order:
+
+    1. Evidence explicitly mentioning the evaluated drug
+       in title and/or abstract
+
+    2. Pair-specific drug + disease evidence
+
+    3. Clinical trial / RCT publications
+
+    4. Primary study publications
+
+    5. Evidence with trial identifiers / publication identifiers
+
+    6. Disease-specific therapeutic evidence
+
+    7. Generic reviews / background literature
+
+Generic papers that do not mention the evaluated drug should not consume
+the highest-priority extraction slots.
+
+Keep the existing maximum extraction budget to control cost/runtime.
+
+Suggested conceptual behavior:
+
+    all literature evidence
+        ↓
+    relevance scoring
+        ↓
+    sort by relevance / clinical specificity
+        ↓
+    take top extraction budget
+
+The score must be deterministic and explainable.
+
+DO NOT use benchmark case IDs.
+
+DO NOT use individual case-specific ranking rules.
+
+Add tests proving that a relevant trial publication appearing at index 20+
+is still selected ahead of generic disease reviews.
+
+============================================================
+FIX 4 — CONTROLLED CARDIOVASCULAR COMPOSITE MATCHING
+============================================================
+
+Target:
+
+    Secondary prevention of cardiovascular disease
+
+The forensic audit found ChEMBL contains Phase 4 indications for relevant
+constituent conditions such as:
+
+    myocardial infarction
+    stroke
+
+while the broad phrase:
+
+    cardiovascular disease
+
+may be Phase 3.
+
+Implement a controlled semantic relationship for the composite phrase.
+
+Do NOT use general fuzzy similarity.
+
+The relationship must be explicit and narrowly scoped through the existing
+disease normalization framework.
+
+The purpose is to allow a legitimate approved Aspirin cardiovascular
+prevention anchor without opening broad false matches.
+
+Regression:
+
+    Aspirin -> Secondary prevention of CVD
+        should recognize valid therapeutic evidence
+
+    Colchicine -> Colorectal cancer
+        must remain unanchored
+
+============================================================
+NEGATIVE EVIDENCE REQUIREMENT
+============================================================
+
+After Fix 3, verify that the following publications are actually passed
+to the claim extractor when present in retrieved evidence:
+
+    Fluvoxamine / COVID-19 trial evidence
+    Aspirin / COVID-19 RECOVERY evidence
+    Atorvastatin / Alzheimer LEADe evidence
+
+For each case, record:
+
+    publication title
+    PMID/DOI if available
+    drug mention
+    disease relevance
+    extraction result
+    predicate
+    confidence
+    provenance
+
+The correct goal is:
+
+    retrieve
+        ↓
+    prioritize
+        ↓
+    extract
+        ↓
+    qualify
+        ↓
+    independent evidence grouping
+        ↓
+    opposition
+
+Do not modify Rule 2b merely to compensate for evidence-selection failure.
+
+============================================================
+COMPLETED TRIAL RULE
+============================================================
+
+Maintain:
+
+    COMPLETED + no explicit negative outcome
+        -> no opposition
+
+    COMPLETED + explicit negative published primary outcome
+        -> candidate FAILED_TO_IMPROVE
+
+Only if:
+
+    evaluated drug = actual intervention
+    AND
+    disease matches
+    AND
+    outcome applies to the drug
+    AND
+    evidence quality is sufficient
+
+Comparator failures must not become opposition.
+
+============================================================
+REGRESSION REQUIREMENTS
+============================================================
+
+Existing:
+
+    574 tests
+
+must remain passing.
+
+Add tests for:
+
+1. ChEMBL "4.0" -> 4 parsing.
+2. ChEMBL "3.0" -> 3 parsing.
+3. Active-form discovery.
+4. Fluticasone approval recovery.
+5. Tamoxifen approval recovery.
+6. Aspirin composite indication recovery.
+7. Literature prioritization.
+8. Late-index clinical trial publication is selected.
+9. Negative trial publication becomes FAILED_TO_IMPROVE when explicitly supported.
+10. Generic disease review does not outrank pair-specific trial publication.
+11. Colchicine -> CRC remains UNCERTAIN.
+12. Escitalopram -> neuropathic pain remains UNCERTAIN.
+13. Six unverified hard negatives remain UNCERTAIN.
+14. Comparator failures remain excluded from opposition.
+15. COMPLETED trial without explicit negative outcome remains non-opposition.
+
+============================================================
+VALIDATION
+============================================================
+
+After implementation:
+
+1. Run complete unit/integration suite.
+
+2. Run focused regression tests.
+
+3. Run clean canonical 25-case benchmark.
+
+4. Do NOT use stale evaluation cache.
+
+5. Report:
+
+    standard accuracy
+    epistemic accuracy
+    macro precision
+    macro recall
+    macro F1
+    weighted F1
+    MCC
+
+6. Report:
+
+    empirically verified negative recall
+    false-PROMISING rate
+
+7. Produce case-by-case comparison against the current baseline:
+
+    Standard = 44%
+    Epistemic = 68%
+
+============================================================
+CRITICAL CASES
+============================================================
+
+Pay special attention to:
+
+    CYN-013 Aspirin -> Secondary prevention CVD
+    CYN-026 Fluticasone -> Allergic rhinitis
+    CYN-041 Tamoxifen -> ER+ breast cancer
+
+    CYN-103 Azithromycin -> COVID-19
+    CYN-109 Fluvoxamine -> COVID-19
+    CYN-111 Aspirin -> COVID-19
+    CYN-117 Baricitinib -> COVID-19
+    CYN-125 Atorvastatin -> Alzheimer
+    CYN-137 Lithium -> Alzheimer
+
+    CYN-186 Colchicine -> CRC
+    CYN-200 Escitalopram -> Neuropathic pain
+
+============================================================
+IMPORTANT DECISION RULE
+============================================================
+
+Do NOT force the following to OPPOSE merely to increase benchmark score:
+
+    mixed evidence
+    insufficient evidence
+    absent indication
+    unverified hypothesis
+
+The objective is:
+
+    recover genuine evidence that is currently being missed
+
+not:
+
+    change the decision threshold until benchmark labels match.
+
+============================================================
+FINAL OUTPUT
+============================================================
+
+After implementation return:
+
+# 1. FIXES IMPLEMENTED
+
+# 2. TEST RESULTS
+
+# 3. FINAL STANDARD ACCURACY
+
+# 4. FINAL EPISTEMIC ACCURACY
+
+# 5. NEGATIVE EVIDENCE RECALL
+
+# 6. FALSE-PROMISING RATE
+
+# 7. CASES RECOVERED
+
+# 8. CASES STILL UNCERTAIN
+
+# 9. REMAINING ROOT CAUSES
+
+# 10. BACKEND STATUS
+
+Do not create another phase/version.
+
+If epistemic accuracy reaches >=75% and all regression criteria pass,
+freeze the backend and stop scientific modifications.
+
+The next activity after that is frontend/researcher-facing evidence
+visualization and report generation.
+</USER_REQUEST>
+<ADDITIONAL_METADATA>
+The current local time is: 2026-09-06T19:26:20+05:30.
+
+The user's current state is as follows:
+Active Document: c:\Users\win10\Documents\cynthera\mpp_final\cynthera\evaluation_outputs\25_case\results.jsonl (LANGUAGE_JSON)
+Cursor is on line: 5
+Other open documents:
+- c:\Users\win10\Documents\cynthera\mpp_final\cynthera\evaluation_outputs\25_case\results.jsonl (LANGUAGE_JSON)
+</ADDITIONAL_METADATA>
+<USER_SETTINGS_CHANGE>
+The user changed setting `Model Selection` from Gemini 3.8 Flash (Medium) to Claude Opus 4.6 (Thinking). No need to comment on this change if the user doesn't ask about it. If reporting what model you are, please use a human readable name instead of the exact string.
+</USER_SETTINGS_CHANGE>

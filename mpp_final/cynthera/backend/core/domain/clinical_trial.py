@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import re
 import uuid
+from typing import Any
 from pydantic import BaseModel, Field, field_validator
 
 from backend.core.enums.trial_outcome import TrialOutcomeStatus
@@ -44,6 +45,16 @@ class ClinicalTrial(BaseModel):
     primary_outcome: str | None = Field(None, description="Description of the primary outcome measure.")
     enrollment: int | None = Field(None, ge=0, description="Number of enrolled participants.")
     provenance: ProvenanceReference = Field(..., description="Citation to ClinicalTrials.gov record.")
+    study_type: str | None = Field(None, description="Study type e.g. INTERVENTIONAL, OBSERVATIONAL.")
+    design_allocation: str | None = Field(None, description="Design allocation e.g. RANDOMIZED, NON_RANDOMIZED.")
+    intervention_names: list[str] = Field(default_factory=list, description="Names of experimental interventions.")
+    comparator_names: list[str] = Field(default_factory=list, description="Names of comparator or control interventions.")
+    why_stopped: str | None = Field(None, description="Reason why study was stopped.")
+    has_results: bool = Field(default=False, description="Whether results were posted to ClinicalTrials.gov.")
+    outcome_measures: list[dict[str, Any]] = Field(default_factory=list, description="Parsed outcome measures from resultsSection.")
+    is_negative_efficacy: bool = Field(default=False, description="Whether a negative efficacy outcome was confirmed.")
+    negative_efficacy_reason: str | None = Field(None, description="Detailed explanation of negative efficacy determination.")
+    condition_names: list[str] = Field(default_factory=list, description="Conditions/diseases evaluated in the trial.")
 
     @field_validator("nct_id")
     @classmethod

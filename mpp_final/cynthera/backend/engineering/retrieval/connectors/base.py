@@ -107,6 +107,8 @@ class BaseConnector(abc.ABC):
         for attempt in range(_MAX_429_RETRIES):
             response = await self._client.get(url, params=params)
             if response.status_code == 429:
+                if self.source_name == "semantic_scholar":
+                    response.raise_for_status()
                 delay = float(response.headers.get("retry-after", 2.0 + attempt * 2))
                 logger.info(
                     "rate_limited_backoff",

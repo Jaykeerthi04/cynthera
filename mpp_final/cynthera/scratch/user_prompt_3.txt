@@ -1,0 +1,1483 @@
+<USER_REQUEST>
+
+
+# CYNTHERA — SAFE IMPLEMENTATION OF CLINICALTRIALS.GOV + SHARED DISEASE RELATION FIXES
+## IMPLEMENTATION PHASE — AFTER FORENSIC AUDIT
+## DO NOT CHANGE DECISION WEIGHTS OR BENCHMARK LABELS
+
+You have completed the forensic ClinicalTrials.gov audit.
+
+The audit identified multiple confirmed causes of valid clinical-negative evidence being lost:
+
+1. ClinicalTrials.gov result retrieval is hard-truncated to `studies[:20]`.
+2. Drug matching incorrectly treats `"Nivolumab Placebo"` as actual Nivolumab.
+3. Combination/background therapy attribution fails to recognize constant co-medications across arms.
+4. `whyStopped` keyword parsing can misclassify `"no safety concern"` as safety.
+5. Disease matching relies on naive token overlap:
+   - `"stroke"` can match `"hemorrhagic stroke"` and cause false approval inheritance.
+   - `"Traumatic brain injury"` fails to match `"Subdural Hematoma, Chronic"` and can discard a genuine trial.
+6. ClinicalTrials.gov structured results can be present without sufficient statistical evidence, so `hasResults=True` must NOT automatically become negative evidence.
+7. Statistical interpretation has a known superiority/non-inferiority risk and MUST NOT be broadened in this implementation.
+
+Your job now is to implement the smallest scientifically safe fixes.
+
+============================================================
+0. HARD FREEZE
+============================================================
+
+DO NOT change:
+
+- support score formula
+- opposition score formula
+- mechanistic score formula
+- evidence weights
+- opposition thresholds
+- Rule -1 threshold
+- Rule 0 threshold
+- Rule 1 threshold
+- Rule 1b threshold
+- Rule 2 / Rule 2b threshold
+- Rule 5 logic except where required to consume corrected evidence
+- recommendation thresholds
+- benchmark gold labels
+- epistemic labels
+- any unrelated retrieval connector
+- any unrelated database logic
+
+DO NOT optimize benchmark accuracy.
+
+DO NOT make all completed trials negative.
+
+DO NOT make all non-significant p-values negative without establishing valid study design and directional semantics.
+
+DO NOT introduce an LLM call into the ClinicalTrials.gov parser.
+
+DO NOT replace missing evidence with inferred opposition.
+
+============================================================
+1. PRESERVE CURRENT BASELINE
+============================================================
+
+Before editing:
+
+- record git status
+- record current commit
+- record Rule Set version
+- record cache version
+- run the current ClinicalTrials.gov-related test suites
+- run the full unit suite
+
+Save baseline results.
+
+After all edits, the same tests must be rerun.
+
+============================================================
+2. IMPLEMENT ONE SHARED DISEASE-RELATION MODULE
+============================================================
+
+Create:
+
+backend/engineering/retrieval/disease_relation.py
+
+Purpose:
+
+ONE shared disease relation implementation used by:
+
+A. Rule -1 approved-indication matching
+B. ClinicalTrials.gov trial-condition matching
+
+Do not create two separate disease matching algorithms.
+
+The distinction between the callers MUST be represented by relation type / policy.
+
+Implement:
+
+```python
+from __future__ import annotations
+
+from dataclasses import dataclass
+from enum import Enum
+
+
+class DiseaseRelation(Enum):
+    SAME = "SAME"
+    PARENT_CHILD = "PARENT_CHILD"
+    SIBLING_EXCLUDED = "SIBLING_EXCLUDED"
+    UNRELATED = "UNRELATED"
+````
+
+Implement a single canonical normalization function.
+
+Minimum normalization:
+
+* strip
+* lowercase
+* collapse whitespace
+* normalize obvious punctuation where safe
+
+Do NOT perform aggressive stemming.
+
+Do NOT silently remove clinically meaningful qualifiers.
+
+============================================================
+3. INITIAL CURATED RELATION TABLE
+=================================
+
+For Phase 1, use a small explicit curated table.
+
+Do NOT pretend this is a complete ontology.
+
+Use:
+
+```python
+_PARENT_CHILD = {
+    "traumatic brain injury": {
+        "subdural hematoma",
+        "epidural hematoma",
+        "intracranial hemorrhage",
+        "concussion",
+        "diffuse axonal injury",
+        "cerebral contusion",
+    },
+
+    "cardiovascular disease": {
+        "coronary artery disease",
+        "myocardial infarction",
+        "heart failure",
+        "atherosclerosis",
+        "peripheral artery disease",
+    },
+
+    "stroke": {
+        "ischemic stroke",
+        "cerebral infarction",
+    },
+}
+```
+
+Store values as immutable sets/frozensets.
+
+IMPORTANT:
+
+This table is NOT permission to treat all parent/child relations as equivalent for regulatory approval.
+
+It exists primarily to prevent trial-recall loss.
+
+============================================================
+4. EXPLICIT SIBLING EXCLUSIONS
+==============================
+
+Add:
+
+```python
+_SIBLING_EXCLUSIONS = {
+    "ischemic stroke": {"hemorrhagic stroke"},
+    "hemorrhagic stroke": {"ischemic stroke"},
+    "stroke": {"hemorrhagic stroke"},
+}
+```
+
+Sibling exclusion must be checked BEFORE parent/child matching.
+
+Requirement:
+
+```text
+SIBLING_EXCLUDED always wins.
+```
+
+Example:
+
+```text
+stroke
+vs
+hemorrhagic stroke
+
+=> SIBLING_EXCLUDED
+```
+
+Do NOT allow a generic substring match to bypass this.
+
+============================================================
+5. CANONICAL RELATION FUNCTION
+==============================
+
+Implement:
+
+```python
+def classify_disease_relation(
+    term_a: str,
+    term_b: str,
+) -> DiseaseRelation:
+```
+
+Rules, in exact order:
+
+1. normalize both terms
+2. if equal:
+   SAME
+3. explicit sibling exclusion:
+   SIBLING_EXCLUDED
+4. direct curated parent-child relation:
+   PARENT_CHILD
+5. otherwise:
+   UNRELATED
+
+Do NOT use substring containment as a fallback.
+
+For example:
+
+```text
+"stroke" vs "hemorrhagic stroke"
+=> SIBLING_EXCLUDED
+
+"traumatic brain injury"
+vs
+"subdural hematoma"
+=> PARENT_CHILD
+
+"hypertension"
+vs
+"hypertension"
+=> SAME
+
+"diabetes"
+vs
+"glioblastoma"
+=> UNRELATED
+```
+
+============================================================
+6. TWO POLICY WRAPPERS — SAME ENGINE
+====================================
+
+Implement:
+
+```python
+def matches_for_trial_attribution(
+    queried_disease: str,
+    trial_condition: str,
+) -> bool:
+```
+
+Allowed:
+
+```text
+SAME
+PARENT_CHILD
+```
+
+Rejected:
+
+```text
+SIBLING_EXCLUDED
+UNRELATED
+```
+
+Rationale:
+
+Trial evidence from a clinically recognized subtype should be discoverable for the broader hypothesis.
+
+Example:
+
+```text
+Query:
+Traumatic brain injury
+
+Trial:
+Subdural hematoma
+
+=> ACCEPT for trial evidence matching
+```
+
+BUT:
+
+Rule -1 must NOT use this policy.
+
+Implement:
+
+```python
+def matches_for_approval_anchor(
+    queried_disease: str,
+    chembl_indication: str,
+) -> bool:
+```
+
+For Phase 1:
+
+ONLY:
+
+```text
+SAME
+```
+
+is accepted.
+
+Both:
+
+```text
+PARENT_CHILD
+SIBLING_EXCLUDED
+UNRELATED
+```
+
+must NOT create an approval anchor.
+
+This is deliberate.
+
+DO NOT let the trial-attribution policy leak into Rule -1.
+
+============================================================
+7. IMPORTANT REGULATORY SAFETY RULE
+===================================
+
+The following must remain impossible:
+
+```text
+ChEMBL indication = "stroke"
+queried disease = "hemorrhagic stroke"
+
+=> Rule -1 approval anchor
+```
+
+It MUST return:
+
+```text
+SIBLING_EXCLUDED
+=> no approval anchor
+```
+
+Also:
+
+```text
+ChEMBL indication = "ischemic stroke"
+queried disease = "hemorrhagic stroke"
+```
+
+must be:
+
+```text
+SIBLING_EXCLUDED
+=> no approval anchor
+```
+
+Do NOT solve this with a drug-specific hard-coded aspirin exception.
+
+The disease relationship layer must solve it generically.
+
+============================================================
+8. INTEGRATE RULE -1
+====================
+
+Find all existing Rule -1 indication matching paths.
+
+Replace only the disease relation decision with:
+
+```python
+matches_for_approval_anchor(
+    queried_disease,
+    chembl_indication,
+)
+```
+
+Do not rewrite the rest of Rule -1.
+
+Preserve:
+
+* ChEMBL phase handling
+* active-form resolution
+* indication confidence telemetry
+* requested disease tracking
+* existing approved-indication evidence
+* Rule -1 provenance
+
+Add telemetry:
+
+```text
+disease_relation
+disease_relation_policy
+```
+
+For every indication candidate.
+
+Example:
+
+```json
+{
+  "queried_disease": "hemorrhagic stroke",
+  "indication": "stroke",
+  "disease_relation": "SIBLING_EXCLUDED",
+  "approval_anchor": false
+}
+```
+
+============================================================
+9. INTEGRATE CLINICAL TRIAL DISEASE MATCHING
+============================================
+
+Find:
+
+```python
+matches_disease_condition()
+```
+
+Replace its naive token-overlap decision with:
+
+```python
+matches_for_trial_attribution(
+    queried_disease,
+    trial_condition,
+)
+```
+
+Preserve the existing function signature if possible so unrelated code does not break.
+
+It must now correctly recognize:
+
+```text
+Traumatic brain injury
+↔
+Subdural Hematoma, Chronic
+```
+
+as trial-compatible.
+
+But:
+
+```text
+ischemic stroke
+↔
+hemorrhagic stroke
+```
+
+must remain incompatible.
+
+============================================================
+10. CLINICALTRIALS.GOV FIX #1 — REMOVE EARLY STUDY TRUNCATION
+=============================================================
+
+Current confirmed problem:
+
+ClinicalTrials.gov query can return up to 50 records but `_parse_trials_data()` only processes:
+
+```python
+studies[:20]
+```
+
+Remove this hard deletion.
+
+IMPORTANT:
+
+Do NOT simply increase the number to 50 and call it solved.
+
+The parser should process all studies supplied by the connector for that request.
+
+Do not introduce uncontrolled pagination unless the connector already supports it.
+
+At minimum:
+
+```python
+for study in studies:
+```
+
+instead of:
+
+```python
+for study in studies[:20]:
+```
+
+Preserve the existing max-results behavior at the connector/query boundary.
+
+Add a regression test proving that study #37 is not discarded when 50 records are returned.
+
+Specifically reproduce:
+
+```text
+NCT00120289
+```
+
+AIM-HIGH.
+
+The test must establish:
+
+```text
+retrieved
+→ parsed
+→ remains available for attribution
+```
+
+============================================================
+11. CLINICALTRIALS.GOV FIX #2 — SAFE DRUG/PLACEBO MATCHING
+==========================================================
+
+Current confirmed bug:
+
+```text
+"Nivolumab Placebo"
+```
+
+matches:
+
+```text
+"Nivolumab"
+```
+
+as though actual Nivolumab were administered.
+
+This MUST be fixed.
+
+Create a canonical drug-name matching helper if one does not already exist.
+
+Before drug-token matching:
+
+1. normalize the intervention name
+2. detect placebo representations
+3. remove placebo-only identity from candidate intervention matching
+4. distinguish:
+
+   * actual drug
+   * drug placebo
+   * placebo
+   * vehicle/placebo
+   * dummy treatment
+
+Critical invariant:
+
+```text
+"Nivolumab Placebo"
+must NOT match actual administered "Nivolumab"
+```
+
+while:
+
+```text
+"Nivolumab"
+must match "Nivolumab"
+```
+
+and:
+
+```text
+"Nivolumab + Radiation"
+must still identify Nivolumab as present.
+```
+
+Do not solve this using:
+
+```python
+name.replace("placebo", "")
+```
+
+because that can create incorrect matches in other compound names.
+
+Build an explicit classifier:
+
+```text
+ACTUAL_INTERVENTION
+PLACEBO_INTERVENTION
+BACKGROUND_THERAPY
+UNKNOWN
+```
+
+or integrate with the existing TrialDrugRole model.
+
+Preserve all existing attribution logic.
+
+============================================================
+12. CLINICALTRIALS.GOV FIX #3 — DIFFERENTIATING COMPONENT LOGIC
+===============================================================
+
+For:
+
+```text
+Drug A + Standard
+vs
+Drug B + Standard
+```
+
+recognize:
+
+```text
+Standard
+=
+constant background/common therapy
+
+Drug A / Drug B
+=
+differentiating intervention
+```
+
+For:
+
+```text
+Drug A + Standard
+vs
+Standard
+```
+
+recognize:
+
+```text
+Drug A
+=
+differentiating intervention
+
+Standard
+=
+background therapy
+```
+
+Do NOT require the text of `whyStopped` to explicitly mention Drug A before allowing attribution of a completed trial whose statistical outcome is clearly tied to the treatment contrast.
+
+The arm-level contrast is stronger evidence than absence of a drug name in `whyStopped`.
+
+However:
+
+DO NOT loosen attribution for ambiguous multi-drug factorial trials.
+
+For unresolved designs:
+
+```text
+REJECT / UNKNOWN
+```
+
+is safer than false attribution.
+
+============================================================
+13. CLINICALTRIALS.GOV FIX #4 — WHY STOPPED NEGATION
+====================================================
+
+Current bug:
+
+```text
+"Lack of efficacy; no safety concern"
+```
+
+may be classified as safety because `"safety"` is present.
+
+Fix the precedence and negation logic.
+
+Requirements:
+
+```text
+"lack of efficacy"
++
+"no safety concern"
+```
+
+=> TERMINATED_LACK_OF_EFFICACY
+
+NOT:
+
+```text
+TERMINATED_SAFETY
+```
+
+Explicitly support:
+
+```text
+no safety concern
+without safety concern
+not due to safety
+no safety issue
+no safety problems
+```
+
+Negative safety language must not trigger safety classification.
+
+Positive safety language can still trigger:
+
+```text
+TERMINATED_SAFETY
+```
+
+Do not add a general NLP model.
+
+Use deterministic phrase/pattern handling for this patch.
+
+============================================================
+14. DO NOT CHANGE HASRESULTS SEMANTICS
+======================================
+
+Keep:
+
+```text
+hasResults=True
+```
+
+as administrative metadata.
+
+Never:
+
+```text
+hasResults=True
+→ negative
+```
+
+Never:
+
+```text
+COMPLETED
+→ negative
+```
+
+Only valid outcome interpretation can generate negative efficacy.
+
+Maintain these invariants:
+
+```text
+COMPLETED + no results
+→ UNKNOWN
+
+COMPLETED + counts only
+→ UNKNOWN
+
+COMPLETED + insufficient statistical evidence
+→ UNKNOWN
+
+COMPLETED + valid primary efficacy failure
+→ candidate negative
+
+COMPLETED + valid primary efficacy success
+→ supportive
+```
+
+============================================================
+15. DO NOT BROADEN P-VALUE LOGIC IN THIS PATCH
+==============================================
+
+The forensic audit found a separate scientific issue:
+
+Current generic:
+
+```python
+p >= 0.05
+```
+
+interpretation can be invalid for:
+
+* non-inferiority trials
+* equivalence trials
+* within-group analyses
+* uncontrolled trials
+* improperly oriented endpoints
+
+DO NOT attempt to fix all of that in this implementation.
+
+Do NOT make this patch into a statistical inference rewrite.
+
+Instead:
+
+* retain current logic where it is already verified
+* preserve existing safety checks
+* add tests that prevent regression
+* record non-inferiority interpretation as a separate follow-up item
+
+============================================================
+16. DO NOT IMPLEMENT NCT → PUBMED LINKAGE YET
+=============================================
+
+The audit identified the lack of NCT-to-PubMed linking as another recall limitation.
+
+Do NOT implement that in this patch.
+
+It is a separate phase.
+
+The purpose of this patch is:
+
+1. deterministic ClinicalTrials.gov retrieval
+2. deterministic ClinicalTrials.gov parsing
+3. deterministic disease relation
+4. deterministic attribution
+
+Nothing more.
+
+============================================================
+17. REQUIRED UNIT TESTS
+=======================
+
+Create a dedicated test module:
+
+tests/unit/test_clinicaltrials_safe_fixes.py
+
+and:
+
+tests/unit/test_disease_relation.py
+
+At minimum test:
+
+---
+
+## DISEASE RELATION
+
+1.
+
+SAME:
+
+```text
+hypertension / hypertension
+```
+
+=> SAME
+
+2.
+
+TBI parent-child:
+
+```text
+traumatic brain injury
+subdural hematoma
+```
+
+=> PARENT_CHILD
+
+3.
+
+Trial matcher:
+
+```text
+TBI
+subdural hematoma
+```
+
+=> True
+
+4.
+
+Approval matcher:
+
+```text
+TBI
+subdural hematoma
+```
+
+=> False
+
+5.
+
+Sibling:
+
+```text
+ischemic stroke
+hemorrhagic stroke
+```
+
+=> SIBLING_EXCLUDED
+
+6.
+
+Approval:
+
+```text
+stroke
+hemorrhagic stroke
+```
+
+=> False
+
+7.
+
+Trial matcher:
+
+```text
+stroke
+hemorrhagic stroke
+```
+
+=> False
+
+8.
+
+Unrelated:
+
+```text
+hypertension
+glioblastoma
+```
+
+=> UNRELATED
+
+---
+
+## RETRIEVAL
+
+9.
+
+50 returned studies.
+
+Target study is index 37.
+
+=> target survives parsing.
+
+---
+
+## PLACEBO
+
+10.
+
+```text
+"Nivolumab Placebo"
+vs
+"Nivolumab"
+```
+
+=> NOT actual drug match
+
+11.
+
+```text
+"Nivolumab"
+vs
+"Nivolumab"
+```
+
+=> actual match
+
+12.
+
+```text
+"Nivolumab + Radiation"
+```
+
+=> Nivolumab recognized
+
+---
+
+## ATTRIBUTION
+
+13.
+
+```text
+Drug A + Metformin
+vs
+Placebo + Metformin
+```
+
+Drug A differentiating.
+
+Metformin background.
+
+14.
+
+```text
+Nivolumab + Radiation
+vs
+Temozolomide + Radiation
+```
+
+Nivolumab differentiating.
+
+Radiation background/common.
+
+15.
+
+```text
+Nivolumab
+vs
+Nivolumab Placebo
+```
+
+Nivolumab is the evaluated intervention.
+
+Placebo must not count as actual Nivolumab.
+
+---
+
+## WHY STOPPED
+
+16.
+
+```text
+"Lack of efficacy; no safety concern"
+```
+
+=> TERMINATED_LACK_OF_EFFICACY
+
+17.
+
+```text
+"Stopped due to safety concerns"
+```
+
+=> TERMINATED_SAFETY
+
+18.
+
+```text
+"Unable to obtain product"
+```
+
+=> administrative/unknown according to existing semantics
+
+---
+
+## RESULTS
+
+19.
+
+COMPLETED + hasResults=False
+
+=> UNKNOWN
+
+20.
+
+COMPLETED + counts only
+
+=> UNKNOWN
+
+21.
+
+COMPLETED + valid negative statistical analysis
+
+=> COMPLETED_FAILURE
+
+22.
+
+COMPLETED + valid positive statistical analysis
+
+=> COMPLETED_SUCCESS
+
+23.
+
+hasResults=True
+
+alone
+
+=> MUST NOT create opposition
+
+---
+
+## REAL REGRESSION CASES
+
+24. AIM-HIGH:
+
+NCT00120289
+
+Verify:
+
+* survives retrieval truncation
+* parsed
+* correct disease relation
+* correct drug attribution
+* correct negative claim
+
+25. CheckMate 498:
+
+NCT02667587
+
+Verify:
+
+* Nivolumab Placebo is not treated as Nivolumab
+* Nivolumab is differentiating intervention
+* failure is not rejected as background therapy
+
+26. CheckMate 143:
+
+NCT02617589
+
+Verify:
+
+* Radiation common to both arms
+* Nivolumab remains differentiating
+* completed failure can be attributed appropriately
+
+27. Pioglitazone:
+
+NCT02284906
+
+Verify:
+
+```text
+Lack of efficacy; no safety concern
+```
+
+does not become TERMINATED_SAFETY.
+
+28. Dexamethasone/TBI:
+
+NCT02362321
+
+Verify:
+
+Subdural hematoma trial condition is not automatically rejected solely because the query is TBI.
+
+============================================================
+18. FULL EVIDENCE-LINEAGE TEST
+==============================
+
+Create one end-to-end deterministic test that proves:
+
+RAW CLINICALTRIALS.GOV JSON
+↓
+retrieved study
+↓
+parsed ClinicalTrial
+↓
+disease relation
+↓
+trial drug role
+↓
+attribution
+↓
+negative efficacy
+↓
+negative Claim
+↓
+OppositionAssessment
+
+For a real negative trial, every stage must preserve the signal.
+
+Record:
+
+```text
+raw_signal
+normalized_signal
+attribution_signal
+claim_signal
+opposition_signal
+```
+
+This must make it possible to identify the FIRST failed stage.
+
+============================================================
+19. HARD-NEGATIVE SAFETY TESTS
+==============================
+
+Preserve existing behavior:
+
+A trial with no actual negative efficacy evidence must NOT become opposition.
+
+Examples:
+
+```text
+completed + no results
+registered + no results
+counts only
+administrative termination
+unresolved combination attribution
+comparator-only failure
+background therapy failure
+```
+
+must remain:
+
+```text
+NO OPPOSITION
+```
+
+unless independent valid evidence exists.
+
+============================================================
+20. CACHE HANDLING
+==================
+
+The previous audit found:
+
+* evaluation cache exists
+* ClinicalTrials connector raw cache is not actually used
+
+Do not redesign caching.
+
+But make sure the new parser code is actually executed against fresh/invalidated data.
+
+If normalized trial data is cached anywhere:
+
+increment the parser/cache compatibility version.
+
+Do NOT simply leave stale normalized objects under the previous schema version.
+
+Report exactly what was changed.
+
+============================================================
+21. DO NOT CHANGE OTHER DOMAIN LOGIC
+====================================
+
+Do not modify:
+
+* ChEMBL evidence weighting
+* Reactome
+* Open Targets
+* DrugMechDB
+* PubMed retrieval
+* support-score aggregation
+* mechanistic-score aggregation
+* recommendation vocabulary
+* database schema
+* benchmark definitions
+
+unless a compile/import failure is directly caused by this patch.
+
+============================================================
+22. VALIDATION ORDER
+====================
+
+After implementation:
+
+STEP 1
+Run:
+
+```text
+tests/unit/test_disease_relation.py
+tests/unit/test_clinicaltrials_safe_fixes.py
+```
+
+STEP 2
+Run all existing ClinicalTrials / opposition / attribution tests.
+
+STEP 3
+Run:
+
+```text
+python -m pytest tests/unit/ -q
+```
+
+STEP 4
+Run the targeted real-case regression:
+
+* Ivermectin → COVID-19
+* Fluvoxamine → COVID-19
+* Niacin → cardiovascular disease
+* Dexamethasone → traumatic brain injury
+* Nivolumab → glioblastoma
+* Pembrolizumab → glioblastoma
+* Simvastatin → Alzheimer's
+* Pioglitazone → Alzheimer's
+* Metformin → T2D
+
+DO NOT run the full 100-case benchmark yet unless all deterministic tests pass.
+
+============================================================
+23. BEFORE/AFTER FORENSIC TABLE
+===============================
+
+For every repaired case report:
+
+| Case | Old Failure Point | New Behavior | Negative Signal Preserved? | Final Opposition | Regression Risk |
+
+Especially include:
+
+TC-026 Niacin → CVD
+TC-030 Dexamethasone → TBI
+TC-053 Pembrolizumab → GBM
+TC-051 Valproic acid → GBM
+TC-056 Gefitinib → EGFR lung
+TC-058 Crizotinib → ALK lung
+TC-082 Aspirin → hemorrhagic stroke
+
+Do not claim improvement where evidence has not been re-run.
+
+============================================================
+24. REQUIRED DISEASE-RELATION TELEMETRY
+=======================================
+
+Add enough trace information to answer:
+
+Why did a disease match?
+
+Example:
+
+```json
+{
+  "query_disease": "traumatic brain injury",
+  "candidate_condition": "hematoma, subdural, chronic",
+  "relation": "PARENT_CHILD",
+  "policy": "TRIAL_ATTRIBUTION",
+  "matched": true
+}
+```
+
+And:
+
+```json
+{
+  "query_disease": "hemorrhagic stroke",
+  "candidate_indication": "stroke",
+  "relation": "SIBLING_EXCLUDED",
+  "policy": "APPROVAL_ANCHOR",
+  "matched": false
+}
+```
+
+This is required for auditability.
+
+============================================================
+25. REPORT WHAT YOU CHANGED
+===========================
+
+Create:
+
+`clinicaltrials_safe_fix_implementation_report.md`
+
+Include:
+
+1. files changed
+2. functions changed
+3. disease relation implementation
+4. ClinicalTrials.gov retrieval fix
+5. placebo matching fix
+6. combination/background attribution fix
+7. whyStopped negation fix
+8. tests added
+9. tests passed
+10. tests failed
+11. cache/version changes
+12. targeted regression results
+13. known remaining limitations
+
+============================================================
+26. SUCCESS CRITERIA
+====================
+
+The patch is successful ONLY if all are true:
+
+A.
+
+```text
+"stroke"
+vs
+"hemorrhagic stroke"
+```
+
+cannot create a Rule -1 approval anchor.
+
+B.
+
+```text
+"TBI"
+vs
+"Subdural Hematoma"
+```
+
+can pass trial evidence matching.
+
+C.
+
+A study at API result index 37 is not silently deleted.
+
+D.
+
+`"Nivolumab Placebo"` cannot masquerade as administered Nivolumab.
+
+E.
+
+Constant background therapy is not blamed for failure of the added agent.
+
+F.
+
+`"no safety concern"` cannot trigger safety classification.
+
+G.
+
+COMPLETED + missing/insufficient results remains UNKNOWN.
+
+H.
+
+Valid structured efficacy failure can still become COMPLETED_FAILURE.
+
+I.
+
+Existing Metformin background-therapy protection remains intact.
+
+J.
+
+Existing hard-negative safeguards remain intact.
+
+K.
+
+No score/threshold/benchmark-label tuning occurred.
+
+L.
+
+Full unit test suite passes.
+
+============================================================
+27. STOP CONDITIONS
+===================
+
+STOP and report instead of improvising if:
+
+* a disease relation requires an ontology not currently available
+* existing matcher semantics conflict with the new shared matcher
+* a real trial requires ambiguous attribution
+* changing the parser would require changing evidence weights
+* a test requires redefining a benchmark label
+* a regression appears in unrelated reasoning logic
+* a parser change would force p>=0.05 to mean failure in a non-inferiority/equivalence study
+
+Do not solve those by weakening scientific safeguards.
+
+============================================================
+FINAL OBJECTIVE
+===============
+
+The objective is NOT:
+
+"make more benchmark cases OPPOSE."
+
+The objective is:
+
+"Ensure genuine ClinicalTrials.gov evidence survives retrieval, disease matching, endpoint interpretation, and drug attribution without manufacturing opposition or creating false regulatory approvals."
+
+Implement the smallest safe patch.
+Run the required tests.
+Produce the implementation report.
+Do not run broad benchmark tuning.
+
+````
+
+### One adjustment I strongly recommend to your `disease_relation.py`
+
+Your proposed module is conceptually right, but I would make this specific change:
+
+```python
+def matches_for_approval_anchor(
+    queried_disease: str,
+    chembl_indication: str,
+) -> bool:
+    rel = classify_disease_relation(
+        queried_disease,
+        chembl_indication,
+    )
+
+    return rel is DiseaseRelation.SAME
+````
+
+That strictness is intentional.
+
+For **trial evidence**, accepting `PARENT_CHILD` improves recall.
+
+For **regulatory approval**, accepting `PARENT_CHILD` is dangerous because it silently turns:
+
+```text
+approved for specific condition
+```
+
+into:
+
+```text
+approved for every child condition
+```
+
+That would recreate the very kind of false-positive anchor we're trying to remove.
+
+The audit confirms that the existing hard-negative safeguards are valuable and should remain intact while the parser is repaired. 
+
+Also, the `studies[:20]` issue is a **real first-order bug**: AIM-HIGH was found at index 37 and was lost before parsing, while isolated parsing successfully produced the negative claim. 
+
+And the Nivolumab placebo bug is equally concrete: `"Nivolumab Placebo"` was being interpreted as actual Nivolumab and causing the valid trial failure to be rejected. 
+
+So this is the patch I would implement **before touching the opposition formula or trying to raise the 100-case score**.
+
+</USER_REQUEST>
+<ADDITIONAL_METADATA>
+The current local time is: 2026-09-09T22:12:34+05:30.
+
+The user's current state is as follows:
+Active Document: c:\Users\win10\Documents\cynthera\mpp_final\cynthera\clinicaltrials_gov_forensic_audit.md (LANGUAGE_MARKDOWN)
+Cursor is on line: 632
+Other open documents:
+- c:\Users\win10\Documents\cynthera\mpp_final\cynthera\clinicaltrials_gov_forensic_audit.md (LANGUAGE_MARKDOWN)
+- c:\Users\win10\Documents\cynthera\mpp_final\cynthera\backend\evaluation\audit_clinicaltrials_parser.py (LANGUAGE_PYTHON)
+</ADDITIONAL_METADATA>
+<USER_SETTINGS_CHANGE>
+The user changed setting `Model Selection` from Gemini 3.8 Flash (Medium) to Claude Opus 4.6 (Thinking). No need to comment on this change if the user doesn't ask about it. If reporting what model you are, please use a human readable name instead of the exact string.
+</USER_SETTINGS_CHANGE>

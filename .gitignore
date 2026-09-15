@@ -24,3 +24,8 @@ htmlcov/
 *.log
 *.json
 !config/*.json
+
+# Large binary files (exceed GitHub 100MB limit)
+*.db
+*.db.pre_benchmark_bak
+mpp_final/*.zip

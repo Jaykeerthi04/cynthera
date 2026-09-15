@@ -90,6 +90,22 @@ class TestEvaluationCache:
         key_fast = cache._make_key("drug", "disease", "FAST")
         assert key_standard != key_fast
 
+    def test_different_rule_set_versions_have_different_keys(self, cache):
+        """Rule set version 2.0 and 2.1 must produce distinct cache keys."""
+        key_v20 = cache._make_key("drug", "disease", "STANDARD", rule_set_version="2.0")
+        key_v21 = cache._make_key("drug", "disease", "STANDARD", rule_set_version="2.1")
+        assert key_v20 != key_v21
+
+    def test_version_2_0_cached_cannot_be_hit_by_version_2_1(self, cache):
+        """An entry cached with rule_set_version 2.0 must not return on version 2.1 query."""
+        mock_result = _make_mock_result()
+        mock_result.rule_set_version = "2.0"
+        cache.set("DrugA", "DiseaseB", mock_result, "STANDARD", rule_set_version="2.0")
+
+        # Querying with default 2.1 must be a cache miss
+        result_21 = cache.get("DrugA", "DiseaseB", "STANDARD", rule_set_version="2.1")
+        assert result_21 is None
+
     def test_invalidate_removes_entry(self, cache):
         """Invalidate should remove the cached entry."""
         mock_result = _make_mock_result()

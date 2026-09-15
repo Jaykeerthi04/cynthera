@@ -77,19 +77,35 @@ class EvaluationCache:
                 pass
             conn.commit()
 
-    _CACHE_VERSION: str = "v4.2_phase4d"
+    # ClinicalTrials.gov Safe Fix: disease relation, placebo matching, background subtraction, whyStopped negation
+    _CACHE_VERSION: str = "v7.9_clinicaltrials_safe_fix"
+    _DEFAULT_RULE_SET_VERSION: str = "3.2"
 
     @classmethod
-    def _make_key(cls, drug_name: str, disease_name: str, policy: str) -> str:
-        """Compute deterministic cache key including version namespace."""
-        raw = f"{cls._CACHE_VERSION}:{drug_name.lower().strip()}:{disease_name.lower().strip()}:{policy.upper()}"
-        return hashlib.sha256(raw.encode()).hexdigest()
+    def _make_key(
+        cls,
+        drug_name: str,
+        disease_name: str,
+        policy: str = "STANDARD",
+        rule_set_version: str = "3.2",
+    ) -> str:
+        """Compute deterministic structured cache key including version namespace and rule_set_version."""
+        identity = {
+            "version_namespace": cls._CACHE_VERSION,
+            "drug": drug_name.lower().strip(),
+            "disease": disease_name.lower().strip(),
+            "policy": policy.upper().strip(),
+            "rule_set_version": str(rule_set_version).strip(),
+        }
+        encoded = json.dumps(identity, sort_keys=True).encode("utf-8")
+        return hashlib.sha256(encoded).hexdigest()
 
     def get(
         self,
         drug_name: str,
         disease_name: str,
         policy: str = "STANDARD",
+        rule_set_version: str = "3.2",
     ) -> ReasoningResult | None:
         """Retrieve a cached ReasoningResult.
 
@@ -97,11 +113,12 @@ class EvaluationCache:
             drug_name: Drug name used in the original evaluation.
             disease_name: Disease name used in the original evaluation.
             policy: Retrieval policy string.
+            rule_set_version: Rule engine version (must match cached result).
 
         Returns:
             ReasoningResult if cached and not expired, else None.
         """
-        key = self._make_key(drug_name, disease_name, policy)
+        key = self._make_key(drug_name, disease_name, policy, rule_set_version)
         now = time.time()
 
         with self._connect() as conn:
@@ -111,12 +128,36 @@ class EvaluationCache:
             ).fetchone()
 
         if row is None:
-            logger.debug("cache_miss", extra={"drug": drug_name, "disease": disease_name})
+            logger.debug(
+                "cache_miss",
+                extra={
+                    "drug": drug_name,
+                    "disease": disease_name,
+                    "rule_set_version": rule_set_version,
+                },
+            )
             return None
 
         if row["expires_at"] < now:
             self._delete(key)
             logger.info("cache_expired", extra={"drug": drug_name, "disease": disease_name})
+            return None
+
+        try:
+            result = ReasoningResult.model_validate_json(row["result_json"])
+            if result.rule_set_version != rule_set_version:
+                logger.info(
+                    "cache_rule_set_version_mismatch",
+                    extra={
+                        "cached_version": result.rule_set_version,
+                        "expected_version": rule_set_version,
+                    },
+                )
+                self._delete(key)
+                return None
+        except Exception as exc:
+            logger.warning("cache_parse_error", extra={"error": str(exc)})
+            self._delete(key)
             return None
 
         # Update hit count
@@ -133,15 +174,10 @@ class EvaluationCache:
                 "drug": drug_name,
                 "disease": disease_name,
                 "hit_count": row["hit_count"] + 1,
+                "rule_set_version": rule_set_version,
             },
         )
-
-        try:
-            return ReasoningResult.model_validate_json(row["result_json"])
-        except Exception as exc:
-            logger.warning("cache_parse_error", extra={"error": str(exc)})
-            self._delete(key)
-            return None
+        return result
 
     def set(
         self,
@@ -149,6 +185,7 @@ class EvaluationCache:
         disease_name: str,
         result: ReasoningResult,
         policy: str = "STANDARD",
+        rule_set_version: str | None = None,
     ) -> None:
         """Store a ReasoningResult in the cache.
 
@@ -157,8 +194,10 @@ class EvaluationCache:
             disease_name: Disease name.
             result: The ReasoningResult to cache.
             policy: Retrieval policy string.
+            rule_set_version: Rule engine version string (defaults to result.rule_set_version).
         """
-        key = self._make_key(drug_name, disease_name, policy)
+        r_ver = rule_set_version or getattr(result, "rule_set_version", self._DEFAULT_RULE_SET_VERSION)
+        key = self._make_key(drug_name, disease_name, policy, r_ver)
         now = time.time()
         expires_at = now + self._ttl
         result_json = result.model_dump_json()
@@ -193,6 +232,7 @@ class EvaluationCache:
             extra={
                 "drug": drug_name,
                 "disease": disease_name,
+                "rule_set_version": r_ver,
                 "ttl_seconds": self._ttl,
             },
         )
@@ -202,14 +242,24 @@ class EvaluationCache:
         drug_name: str,
         disease_name: str,
         policy: str = "STANDARD",
+        rule_set_version: str | None = None,
     ) -> bool:
-        """Invalidate a specific cache entry.
+        """Invalidate a specific cache entry (or all versions for this drug/disease/policy).
 
         Returns:
             True if an entry was removed.
         """
-        key = self._make_key(drug_name, disease_name, policy)
-        return self._delete(key)
+        if rule_set_version is not None:
+            key = self._make_key(drug_name, disease_name, policy, rule_set_version)
+            return self._delete(key)
+
+        with self._connect() as conn:
+            result = conn.execute(
+                "DELETE FROM evaluation_cache WHERE drug_name = ? AND disease_name = ? AND retrieval_policy = ?",
+                (drug_name.lower().strip(), disease_name.lower().strip(), policy.upper().strip()),
+            )
+            conn.commit()
+        return result.rowcount > 0
 
     def _delete(self, key: str) -> bool:
         with self._connect() as conn:

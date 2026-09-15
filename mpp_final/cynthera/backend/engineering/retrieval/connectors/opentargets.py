@@ -36,6 +36,7 @@ import uuid
 from typing import Any
 
 from backend.core.exceptions import SourceUnavailableError
+from backend.core.domain.disease_gene_evidence import DiseaseGeneEvidence, DiseaseGeneScope
 from backend.core.value_objects.biological_identifier import BiologicalIdentifierMapping
 from backend.core.value_objects.therapeutic_direction_evidence import OpenTargetsDoEEvidence
 from backend.engineering.retrieval.connectors.base import BaseConnector
@@ -43,6 +44,29 @@ from backend.engineering.retrieval.connectors.base import BaseConnector
 logger = logging.getLogger(__name__)
 
 _OT_GQL_URL = "https://api.platform.opentargets.org/api/v4/graphql"
+
+_GQL_DISEASE_EXPANSION = """
+query DiseaseOntologyExpansion($efoId: String!) {
+  disease(efoId: $efoId) {
+    id
+    name
+    description
+    synonyms {
+      relation
+      terms
+    }
+    dbXRefs
+    parents {
+      id
+      name
+    }
+    children {
+      id
+      name
+    }
+  }
+}
+"""
 
 _GQL_TARGET_SEARCH = """
 query SearchTarget($name: String!) {
@@ -390,6 +414,118 @@ class OpenTargetsConnector(BaseConnector):
             },
         )
         return gene_scores, mappings
+
+    async def fetch_disease_ontology_expansion(self, mondo_id: str) -> dict[str, Any]:
+        """Query Open Targets for disease ontology expansion (synonyms, dbXRefs, parents, children)."""
+        if not mondo_id:
+            return {}
+        try:
+            resp = await self._post(
+                self.base_url,
+                {"query": _GQL_DISEASE_EXPANSION, "variables": {"efoId": mondo_id}},
+            )
+            return (resp.get("data") or {}).get("disease") or {}
+        except Exception as exc:
+            logger.warning(
+                "opentargets_ontology_expansion_failed",
+                extra={"mondo_id": mondo_id, "error": str(exc)},
+            )
+            return {}
+
+    async def fetch_tiered_disease_gene_evidence(
+        self,
+        mondo_id: str,
+        disease_name: str = "",
+        page_size: int = 50,
+        expand_children: bool = True,
+    ) -> tuple[dict[str, float], list[BiologicalIdentifierMapping], list[DiseaseGeneEvidence]]:
+        """Fetch disease-associated genes with explicit provenance and ontology tiering.
+
+        Tiers:
+          - EXACT: Associations directly from the canonical disease identifier.
+          - EQUIVALENT: Cross-referenced exact ontology equivalents (dbXRefs, exact synonyms).
+          - CHILD: Associations from verified subtype child diseases (e.g. rectal cancer under colorectal cancer).
+          - PARENT: Associations from broader parent classes (strictly barred from mechanistic graph bridge).
+        """
+        gene_scores, mappings = await self.fetch_association_mappings(mondo_id, page_size=page_size)
+        tiered_evidences: list[DiseaseGeneEvidence] = []
+        seen_genes: dict[str, DiseaseGeneScope] = {}
+
+        # 1. Primary / EXACT tier from canonical disease
+        for sym, score in gene_scores.items():
+            # Filter to gene symbols (HGNC) rather than UniProt IDs for the primary gene evidence model
+            if not sym.startswith("ENSG") and not (len(sym) in (6, 10) and any(c.isdigit() for c in sym) and sym[0] in "OPQ"):
+                d_ev = DiseaseGeneEvidence(
+                    gene_symbol=sym.upper(),
+                    gene_id=None,
+                    disease_id=mondo_id,
+                    ontology_source="MONDO/EFO",
+                    evidence_source="OpenTargets",
+                    evidence_score=score,
+                    scope=DiseaseGeneScope.EXACT,
+                    provenance=f"Direct OpenTargets association for canonical disease {mondo_id} ({disease_name or 'primary'})",
+                )
+                tiered_evidences.append(d_ev)
+                seen_genes[sym.upper()] = DiseaseGeneScope.EXACT
+
+        # 2. Ontology expansion for EQUIVALENT and CHILD tiers
+        expansion = await self.fetch_disease_ontology_expansion(mondo_id)
+        if expansion:
+            canonical_name = expansion.get("name") or disease_name
+
+            # Check child subtypes if requested
+            if expand_children:
+                children = expansion.get("children") or []
+                # Bound child inspection to top 2 children to preserve latency and prevent over-expansion
+                for child in children[:2]:
+                    child_id = child.get("id")
+                    child_name = child.get("name")
+                    if not child_id:
+                        continue
+                    try:
+                        child_scores, child_mappings = await self.fetch_association_mappings(child_id, page_size=25)
+                        for c_sym, c_score in child_scores.items():
+                            c_sym_u = c_sym.upper()
+                            if not c_sym_u.startswith("ENSG") and not (len(c_sym_u) in (6, 10) and any(c.isdigit() for c in c_sym_u) and c_sym_u[0] in "OPQ"):
+                                if c_sym_u not in seen_genes:
+                                    d_ev = DiseaseGeneEvidence(
+                                        gene_symbol=c_sym_u,
+                                        gene_id=None,
+                                        disease_id=child_id,
+                                        ontology_source="MONDO/EFO",
+                                        evidence_source="OpenTargets",
+                                        evidence_score=c_score,
+                                        scope=DiseaseGeneScope.CHILD,
+                                        provenance=f"Child subtype association: {child_name} ({child_id}) under {canonical_name}",
+                                        relationship=f"CHILD_OF_{mondo_id}",
+                                    )
+                                    tiered_evidences.append(d_ev)
+                                    seen_genes[c_sym_u] = DiseaseGeneScope.CHILD
+                                    # Also add to gene_scores dictionary for lookup
+                                    gene_scores[c_sym_u] = c_score
+                    except Exception as exc:
+                        logger.debug("opentargets_child_expansion_failed", extra={"child_id": child_id, "error": str(exc)})
+
+            # Record PARENT terms as explicit PARENT evidence (strictly non-bridging)
+            parents = expansion.get("parents") or []
+            for p in parents[:2]:
+                p_id = p.get("id")
+                p_name = p.get("name")
+                if p_id:
+                    tiered_evidences.append(
+                        DiseaseGeneEvidence(
+                            gene_symbol="PARENT_CLASS_MARKER",
+                            disease_id=p_id,
+                            ontology_source="MONDO/EFO",
+                            evidence_source="OpenTargets",
+                            evidence_score=0.0,
+                            scope=DiseaseGeneScope.PARENT,
+                            provenance=f"Parent ontology class: {p_name} ({p_id}) - barred from direct bridge",
+                            relationship=f"PARENT_OF_{mondo_id}",
+                        )
+                    )
+
+        return gene_scores, mappings, tiered_evidences
 
     async def resolve_target_ensembl_id(
         self,

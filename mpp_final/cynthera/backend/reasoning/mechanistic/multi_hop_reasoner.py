@@ -541,35 +541,3 @@ class MultiHopReasoner:
             return score, "MEDIUM"
         return score, "LOW" if score > 0.0 else "NONE"
 
-        # Best candidate drives base score
-        best = candidates[0]
-        weight = _SUPPORT_WEIGHTS.get(best.support_level, 0.0)
-        base_score = best.confidence_score * weight
-
-        # Additional independent candidates (different primary target) add corroboration
-        best_target = best.name  # used to detect independence
-        corroboration = 0.0
-        for cand in candidates[1:4]:
-            if cand.support_level in ("UNSUPPORTED", "CONTRADICTED"):
-                continue
-            w = _SUPPORT_WEIGHTS.get(cand.support_level, 0.0)
-            # Independence: different candidate name prefix (different primary target)
-            is_independent = not cand.name.startswith(best_target[:20])
-            corroboration += cand.confidence_score * w * (1.0 if is_independent else 0.3)
-        corroboration_bonus = min(0.10, corroboration / 3.0)
-
-        score = round(min(1.0, base_score + corroboration_bonus), 4)
-
-        # Level is derived FROM the best support level — never from a separate threshold
-        if best.support_level == "STRONGLY_SUPPORTED" and score >= 0.55:
-            level = "HIGH"
-        elif best.support_level in ("STRONGLY_SUPPORTED", "MODERATELY_SUPPORTED") and score >= 0.30:
-            level = "MEDIUM"
-        elif best.support_level == "WEAK_SPECULATIVE" and score > 0.0:
-            level = "LOW"
-        elif score > 0.0:
-            level = "LOW"
-        else:
-            level = "NONE"
-
-        return score, level

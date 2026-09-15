@@ -1,0 +1,26 @@
+case_id,drug,disease,category,status,prediction,expected,runtime_seconds,mechanistic_score,support_score,cache_hit
+CYN-003,Lisinopril,Hypertension,Established positive,SUCCESS,SUPPORT,SUPPORT,34.52,0.49,0.9962,False
+CYN-013,Aspirin,Secondary prevention of cardiovascular disease,Established positive,SUCCESS,UNCERTAIN,SUPPORT,91.61,0.0,0.9863,False
+CYN-023,Budesonide,Asthma,Established positive,SUCCESS,SUPPORT,SUPPORT,91.27,0.49,0.9906,False
+CYN-026,Fluticasone,Allergic rhinitis,Established positive,SUCCESS,UNCERTAIN,SUPPORT,91.28,0.4132,0.9849,False
+CYN-036,Etanercept,Rheumatoid arthritis,Established positive,SUCCESS,SUPPORT,SUPPORT,91.27,0.49,0.9882,False
+CYN-041,Tamoxifen,ER-positive breast cancer,Established positive,SUCCESS,UNCERTAIN,SUPPORT,93.2,0.0,0.9886,False
+CYN-044,Trastuzumab,HER2-positive breast cancer,Established positive,SUCCESS,SUPPORT,SUPPORT,78.59,0.0,0.995,False
+CYN-251,Metformin,Pancreatic cancer,Hard negative,SUCCESS,UNCERTAIN,OPPOSE,77.51,0.0,0.9941,False
+CYN-260,Furosemide,Depression,Hard negative,SUCCESS,UNCERTAIN,OPPOSE,93.49,0.0,0.9865,False
+CYN-261,Warfarin,Leishmaniasis,Hard negative,SUCCESS,UNCERTAIN,OPPOSE,31.63,0.3714,0.9768,False
+CYN-277,Pregabalin,Breast cancer,Hard negative,SUCCESS,UNCERTAIN,OPPOSE,87.98,0.4621,0.9894,False
+CYN-284,Tamsulosin,Liver cancer,Hard negative,SUCCESS,UNCERTAIN,OPPOSE,96.66,0.3984,0.9467,False
+CYN-299,Imatinib,COVID-19,Hard negative,SUCCESS,UNCERTAIN,OPPOSE,93.42,0.3394,0.9901,False
+CYN-103,Azithromycin,COVID-19,Contradictory/negative,SUCCESS,OPPOSE,OPPOSE,96.89,0.0,0.9861,False
+CYN-109,Fluvoxamine,COVID-19,Contradictory/negative,SUCCESS,UNCERTAIN,OPPOSE,94.27,0.3314,0.9912,False
+CYN-111,Aspirin,COVID-19,Contradictory/negative,SUCCESS,UNCERTAIN,OPPOSE,92.18,0.409,0.9855,False
+CYN-117,Baricitinib,COVID-19,Contradictory/negative,SUCCESS,UNCERTAIN,OPPOSE,48.25,0.4852,0.9957,False
+CYN-125,Atorvastatin,Alzheimer disease,Contradictory/negative,SUCCESS,UNCERTAIN,OPPOSE,66.56,0.3966,0.9948,False
+CYN-137,Lithium,Alzheimer disease,Contradictory/negative,SUCCESS,UNCERTAIN,OPPOSE,88.57,0.0,0.9866,False
+CYN-179,Propranolol,Depression,Weak/indirect,SUCCESS,UNCERTAIN,UNCERTAIN,31.54,0.0,0.9938,False
+CYN-186,Colchicine,Colorectal cancer,Weak/indirect,SUCCESS,UNCERTAIN,UNCERTAIN,25.25,0.4214,0.9947,False
+CYN-200,Escitalopram,Neuropathic pain,Weak/indirect,SUCCESS,UNCERTAIN,UNCERTAIN,96.4,0.4009,0.9725,False
+CYN-213,Furosemide,COPD,Weak/indirect,SUCCESS,UNCERTAIN,UNCERTAIN,98.95,0.3965,0.9854,False
+CYN-221,Baricitinib,Influenza,Weak/indirect,SUCCESS,UNCERTAIN,UNCERTAIN,93.62,0.386,0.9889,False
+CYN-249,Losartan,Breast cancer,Weak/indirect,SUCCESS,UNCERTAIN,UNCERTAIN,92.52,0.0,0.9889,False

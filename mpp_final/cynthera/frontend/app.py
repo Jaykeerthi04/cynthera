@@ -18,6 +18,15 @@ load_dotenv()
 
 import streamlit as st
 from backend.core.value_objects.source_url_builder import SourceURLBuilder
+from frontend.components.mechanistic_panel import render_mechanistic_panel
+from frontend.components.directional_panel import render_directional_panel
+from frontend.components.contradiction_panel import render_contradiction_panel
+from frontend.components.evidence_panel import render_evidence_panel
+from frontend.components.target_panel import render_target_panel
+from frontend.components.recommendation_panel import render_recommendation_panel
+from frontend.components.scientific_explanation import render_scientific_explanation
+from frontend.components.benchmark_panel import render_benchmark_panel
+from frontend.components.ablation_panel import render_ablation_panel
 
 st.set_page_config(
     page_title="CYNTHERA — Drug Repurposing AI",
@@ -514,7 +523,7 @@ with st.sidebar:
     st.markdown("---")
     page = st.radio(
         "Navigation",
-        ["🔬 Evaluate", "📊 Results", "📋 Audit Report", "🕐 History", "⚡ Batch", "🧪 Phase 4E Evaluation"],
+        ["🔬 Evaluate", "📊 Results", "📋 Audit Report", "🧪 Evaluation & Benchmark", "🕐 History", "⚡ Batch"],
         index=0,
         label_visibility="collapsed",
     )
@@ -664,96 +673,33 @@ elif page == "📊 Results":
 
         st.markdown(f"## Results: {r['drug']} → {r['disease']}")
 
-        # Recommendation badge
-        render_recommendation_badge(result.recommendation_status.value)
+        # ── Visual Hierarchy per Phase 5.8 Specification ──
+        # 1. Final Recommendation Banner & Decision Trace
+        render_recommendation_panel(result, pkg)
+        st.markdown("---")
 
-        # -- Retrieval Errors panel (rendered BEFORE scores so the user
-        # sees the context before interpreting numbers) ------------------
-        failures = getattr(result, "data_source_failures", [])
-        extraction_method = getattr(result, "claim_extraction_method", "unknown")
+        # 2. Mechanistic Evidence Panel (Exposes MS, Quality, score_components, quality gate notice)
+        render_mechanistic_panel(result, pkg)
+        st.markdown("---")
 
-        if failures:
-            st.markdown("### ⚠️ Retrieval Errors — Scores Are Based on Incomplete Data")
-            st.markdown(
-                '<div style="border: 1px solid #ef4444; border-radius: 8px; '
-                'padding: 1rem; background: #ef444408; margin-bottom: 1rem;">'
-                '<div style="color: #ef4444; font-weight: 700; margin-bottom: 0.75rem; font-size: 0.95rem;">'
-                'The following data sources failed during retrieval. '
-                'Each failure is listed with its impact on scoring. '
-                'Scores reflect whatever data WAS retrieved — they are NOT averages or defaults.</div>',
-                unsafe_allow_html=True,
-            )
-            for failure in failures:
-                source_name, _, rest = failure.partition(" -- ")
-                st.markdown(
-                    f'<div style="display: flex; gap: 0.75rem; align-items: flex-start; '
-                    f'margin-bottom: 0.5rem; padding: 0.5rem; background: #1a1a2e; '
-                    f'border-radius: 6px; border-left: 3px solid #ef4444;">'
-                    f'<span style="color: #ef4444; font-size: 1rem; flex-shrink: 0;">✗</span>'
-                    f'<div><span style="color: #fca5a5; font-weight: 600;">{source_name}</span>'
-                    f'<span style="color: #94a3b8; font-size: 0.85rem;"> — {rest}</span></div>'
-                    f'</div>',
-                    unsafe_allow_html=True,
-                )
-            st.markdown("</div>", unsafe_allow_html=True)
+        # 3. Directional Mechanism Panel (Phase 5.3 four states)
+        render_directional_panel(result, pkg)
+        st.markdown("---")
 
-        # -- Claim extraction method badge --------------------------------
-        _extraction_badge = {
-            "llm": ("#10b981", "🧠 LLM Extraction", "Claims extracted by Gemini (scientific reasoning)"),
-            "rule_based_fallback": ("#ef4444", "⚠ Keyword Fallback", "LLM unavailable — claims are keyword-matched, not scientifically extracted"),
-            "mixed": ("#f59e0b", "⚠ Mixed Extraction", "Some claims used LLM; some used keyword fallback"),
-            "none": ("#64748b", "— No Claims", "No literature evidence was available for claim extraction"),
-            "unknown": ("#64748b", "— Unknown", "Extraction method not recorded"),
-        }
-        _badge_color, _badge_label, _badge_desc = _extraction_badge.get(
-            extraction_method, ("#64748b", f"— {extraction_method}", "")
-        )
-        st.markdown(
-            f'<div style="margin-bottom: 1rem;">'
-            f'<span style="display: inline-flex; align-items: center; gap: 0.4rem; '
-            f'padding: 0.3rem 0.8rem; border-radius: 20px; font-size: 0.8rem; font-weight: 600; '
-            f'background: {_badge_color}22; color: {_badge_color}; border: 1px solid {_badge_color}55;">'
-            f'{_badge_label}</span> '
-            f'<span style="color: #64748b; font-size: 0.8rem;">{_badge_desc}</span>'
-            f'</div>',
-            unsafe_allow_html=True,
-        )
+        # 4. Contradiction & Uncertainty Panel (Phase 5.6)
+        render_contradiction_panel(result, pkg)
+        st.markdown("---")
 
-        # Score cards — degraded flag fires when that score's input sources failed
-        _ss_degraded = any(s in pkg.sources_failed for s in ("pubmed", "openalex", "semantic_scholar"))
-        _ms_degraded = any(s in pkg.sources_failed for s in ("chembl", "uniprot", "reactome"))
-        _rs_degraded = "clinicaltrials" in pkg.sources_failed
+        # 5. Target Trace Panel (Ranked target, expected target, match, all targets list)
+        render_target_panel(result, pkg)
+        st.markdown("---")
 
-        st.markdown("### 📐 Three-Dimensional Scores")
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            render_score_card(
-                "Support Score (SS)",
-                result.support_assessment.score,
-                result.support_assessment.level,
-                "#3b82f6",
-                "📚",
-                degraded=_ss_degraded,
-            )
-        with col2:
-            render_score_card(
-                "Mechanistic Score (MS)",
-                result.mechanistic_assessment.score,
-                result.mechanistic_assessment.level,
-                "#8b5cf6",
-                "🔗",
-                degraded=_ms_degraded,
-            )
-        with col3:
-            render_score_card(
-                "Risk Score (RS)",
-                result.risk_assessment.score,
-                result.risk_assessment.level,
-                "#ef4444",
-                "⚠️",
-                degraded=_rs_degraded,
-            )
+        # 6. Evidence & Frozen Weighting Metadata Panel (CONFIG_A, family breakdown)
+        render_evidence_panel(result, pkg)
+        st.markdown("---")
 
+        # 7. Scientific Explanation Panel (How CYNTHERA reasons, core epistemic distinctions)
+        render_scientific_explanation()
         st.markdown("---")
 
         # Evidence summary with Phase 3 Reaction Metrics
@@ -818,6 +764,11 @@ elif page == "📊 Results":
                     for h in hops
                 ) or any("REACTION" in str(node).upper() for node in c_chain)
 
+                c_dir_status = cand.get("directional_mechanism_status", "UNKNOWN")
+                dir_badge_color = "#10b981" if c_dir_status == "CONSISTENT" else ("#ef4444" if c_dir_status == "CONTRADICTORY" else ("#f59e0b" if c_dir_status == "PARTIAL" else "#64748b"))
+                dir_badge_bg = "rgba(16,185,129,0.12)" if c_dir_status == "CONSISTENT" else ("rgba(239,68,68,0.12)" if c_dir_status == "CONTRADICTORY" else ("rgba(245,158,11,0.12)" if c_dir_status == "PARTIAL" else "rgba(100,116,139,0.12)"))
+                dir_badge_html = f'<span style="background: {dir_badge_bg}; border: 1px solid {dir_badge_color}; color: {dir_badge_color}; padding: 0.15rem 0.5rem; border-radius: 4px; font-weight: 700; font-size: 0.72rem; margin-right: 0.5rem;">DIRECTION: {c_dir_status}</span>'
+
                 badge_color = "#10b981" if "STRONGLY" in c_level else ("#f59e0b" if "MODERATELY" in c_level else "#ef4444")
                 badge_bg = "rgba(16,185,129,0.12)" if "STRONGLY" in c_level else ("rgba(245,158,11,0.12)" if "MODERATELY" in c_level else "rgba(239,68,68,0.12)")
                 path_type_badge = (
@@ -831,6 +782,7 @@ elif page == "📊 Results":
                     <div style="display: flex; justify-content: space-between; align-items: center;">
                         <div>
                             {path_type_badge}
+                            {dir_badge_html}
                             <span style="font-weight: 700; font-size: 1.05rem; color: #f8fafc;">{c_name}</span>
                         </div>
                         <div style="background: {badge_bg}; border: 1px solid {badge_color}; color: {badge_color}; padding: 0.2rem 0.6rem; border-radius: 6px; font-weight: 700; font-size: 0.8rem;">
@@ -840,6 +792,7 @@ elif page == "📊 Results":
                     <div style="color: #94a3b8; margin-top: 0.35rem; font-size: 0.82rem;">Discovery Status: {c_status.replace('_', ' ')}</div>
                 </div>
                 """, unsafe_allow_html=True)
+
 
                 # Render structured multi-node visual chain (Drug → Target → Reaction → Pathway → Gene → Disease)
                 if hops:
@@ -1645,149 +1598,29 @@ elif page == "⚡ Batch":
 # ─────────────────────────────────────────────
 # Page: Phase 4E Evaluation (Benchmark & Ablations)
 # ─────────────────────────────────────────────
-elif page == "🧪 Phase 4E Evaluation":
-    st.markdown("## 🧪 Phase 4E — Therapeutic Direction Benchmark & Ablations")
-    st.markdown(
-        "<p style='color: #94a3b8;'>Quantitative evaluation of CYNTHERA's directional reasoning engine "
-        "across curated positive indications, directional negative controls, and uncharacterized pairs. "
-        "Features 3×3 multi-class confusion matrices, systematic ablations, and downloadable research reports.</p>",
-        unsafe_allow_html=True,
-    )
+elif page in ("🧪 Phase 4E Evaluation", "🧪 Evaluation & Benchmark"):
+    # ── Phase 5.8 Final Test Benchmark & Validation Dashboard ──
+    render_benchmark_panel(st.session_state.get("phase4e_report"))
+    st.markdown("---")
+    render_ablation_panel(st.session_state.get("phase4e_report"))
 
-    if "phase4e_report" not in st.session_state:
-        st.session_state.phase4e_report = None
-
-    col_btn, col_info = st.columns([1, 3])
-    with col_btn:
-        run_bench_btn = st.button("🚀 Run Phase 4E Benchmark", type="primary", use_container_width=True)
-    with col_info:
-        st.caption("Executes all benchmark cases through the production MasterOrchestrator pipeline with fresh evaluations.")
-
-    if run_bench_btn:
-        with st.spinner("Running Phase 4E Benchmark & Ablation Study..."):
-            try:
-                from backend.evaluation.benchmark_runner import BenchmarkRunner
-                runner = BenchmarkRunner()
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                report = loop.run_until_complete(runner.run_benchmark(bypass_cache=True, include_ablations=True))
-                st.session_state.phase4e_report = report
-                st.success("✅ Benchmark evaluation and ablation study complete!")
-            except Exception as exc:
-                st.error(f"Benchmark execution failed: {exc}")
-
-    report = st.session_state.phase4e_report
-    if report:
-        st.markdown("---")
-        # ── 1. Overall Metrics ────────────────────────────────────────────────
-        st.markdown("### 📊 Benchmark Performance Summary")
-        m = report.full_4d_metrics
-        b = report.baseline_metrics
-
-        c1, c2, c3, c4, c5, c6 = st.columns(6)
-        c1.metric("Total Cases", f"{m.total_cases}", f"{m.positive_cases}P / {m.negative_cases}N / {m.uncertain_cases}U")
-        c2.metric("Accuracy", f"{m.accuracy:.1%}" if m.accuracy is not None else "N/A", f"Baseline: {b.accuracy:.1%}" if b.accuracy is not None else "N/A")
-        c3.metric("Precision", f"{m.precision:.1%}" if m.precision is not None else "N/A", f"Baseline: {b.precision:.1%}" if b.precision is not None else "N/A")
-        c4.metric("Recall / Sens.", f"{m.recall:.1%}" if m.recall is not None else "N/A", f"Baseline: {b.recall:.1%}" if b.recall is not None else "N/A")
-        c5.metric("Specificity", f"{m.specificity:.1%}" if m.specificity is not None else "N/A", "Dir. Neg. Rejection")
-        c6.metric("MCC", f"{m.mcc:.3f}" if m.mcc is not None else "N/A", "Correlation")
-
-        # ── 2. Confusion Matrix ───────────────────────────────────────────────
-        st.markdown("### 🔲 3×3 Multi-Class Confusion Matrix")
-        import pandas as pd
-        cm = m.confusion_matrix
-        from backend.evaluation.benchmark_models import BenchmarkClass
-        cm_dict = {
-            "Pred: POSITIVE": [
-                cm.get(BenchmarkClass.POSITIVE, BenchmarkClass.POSITIVE),
-                cm.get(BenchmarkClass.NEGATIVE, BenchmarkClass.POSITIVE),
-                cm.get(BenchmarkClass.UNCERTAIN, BenchmarkClass.POSITIVE),
-            ],
-            "Pred: NEGATIVE": [
-                cm.get(BenchmarkClass.POSITIVE, BenchmarkClass.NEGATIVE),
-                cm.get(BenchmarkClass.NEGATIVE, BenchmarkClass.NEGATIVE),
-                cm.get(BenchmarkClass.UNCERTAIN, BenchmarkClass.NEGATIVE),
-            ],
-            "Pred: UNCERTAIN": [
-                cm.get(BenchmarkClass.POSITIVE, BenchmarkClass.UNCERTAIN),
-                cm.get(BenchmarkClass.NEGATIVE, BenchmarkClass.UNCERTAIN),
-                cm.get(BenchmarkClass.UNCERTAIN, BenchmarkClass.UNCERTAIN),
-            ],
-        }
-        cm_df = pd.DataFrame(cm_dict, index=["Exp: POSITIVE", "Exp: NEGATIVE", "Exp: UNCERTAIN"])
-        st.table(cm_df)
-
-        # ── 3. Case Results Table ─────────────────────────────────────────────
-        st.markdown("### 📋 Case-by-Case Evaluation Results")
-        case_rows = []
-        for cr in report.case_results:
-            is_pass = cr.is_correct
-            status_badge = "✅ PASS" if is_pass else ("⚠️ UNCERTAIN" if cr.predicted_class.value == "UNCERTAIN" else "❌ FAIL")
-            case_rows.append({
-                "Case ID": cr.case.case_id,
-                "Drug": cr.case.drug,
-                "Disease": cr.case.disease,
-                "Expected": cr.case.expected_class.value,
-                "Predicted": cr.predicted_class.value,
-                "Alignment": cr.predicted_alignment,
-                "Primary Target": cr.primary_target or "—",
-                "Concordance": f"{cr.directional_concordance:.2f}",
-                "Status": status_badge,
-            })
-        st.dataframe(pd.DataFrame(case_rows), use_container_width=True)
-
-        # ── 4. Case Detail Accordion ──────────────────────────────────────────
-        st.markdown("#### 🔍 Deep Evidence Inspection")
-        for cr in report.case_results:
-            with st.expander(f"{cr.case.case_id}: {cr.case.drug} → {cr.case.disease} ({cr.predicted_class.value})"):
-                st.markdown(f"**Rationale:** {cr.case.rationale}")
-                st.markdown(f"**Primary Target:** `{cr.primary_target or 'None'}` | **Predicted Alignment:** `{cr.predicted_alignment}`")
-                st.markdown(f"**Directional Concordance Ratio:** `{cr.directional_concordance:.2f}` (Supporting: {cr.supporting_group_count} / Opposing: {cr.opposing_group_count})")
-                st.markdown(f"**Explanation:** {cr.explanation}")
-                if cr.target_alignments:
-                    st.markdown("**Target Alignment Breakdown:**")
-                    st.json(cr.target_alignments)
-
-        # ── 5. Ablation Study ─────────────────────────────────────────────────
-        st.markdown("### 🔬 Systematic Ablation Analysis")
-        st.markdown("<small style='color: #94a3b8;'>Quantifies directional shift and metric deltas when individual evidence layers are removed.</small>", unsafe_allow_html=True)
-        if report.ablation_results:
-            ab_rows = []
-            for ab in report.ablation_results:
-                m_ab = ab.metrics
-                ab_rows.append({
-                    "Configuration": ab.config_name.value,
-                    "Description": ab.description,
-                    "Accuracy": f"{m_ab.accuracy:.1%}" if m_ab.accuracy is not None else "N/A",
-                    "Precision": f"{m_ab.precision:.1%}" if m_ab.precision is not None else "N/A",
-                    "Recall": f"{m_ab.recall:.1%}" if m_ab.recall is not None else "N/A",
-                    "F1 Score": f"{m_ab.f1_score:.3f}" if m_ab.f1_score is not None else "N/A",
-                    "Cases Shifted": len(ab.changed_cases_from_full),
-                })
-            st.dataframe(pd.DataFrame(ab_rows), use_container_width=True)
-
-            for ab in report.ablation_results:
-                if ab.changed_cases_from_full:
-                    with st.expander(f"Shifted cases for {ab.config_name.value} ({len(ab.changed_cases_from_full)})"):
-                        for ch in ab.changed_cases_from_full:
-                            st.markdown(f"- **{ch.get('drug')} → {ch.get('disease')}**: `{ch.get('full_prediction')}` → `{ch.get('ablated_prediction')}` ({ch.get('reason')})")
-
-        # ── 6. Downloadable Report ────────────────────────────────────────────
-        st.markdown("---")
-        st.markdown("### 📥 Download Research Evaluation Report")
-        try:
-            from backend.reporting.evaluation_pdf_exporter import EvaluationPDFExporter
-            pdf_bytes = EvaluationPDFExporter(report).generate_pdf_bytes()
-            st.download_button(
-                label="📄 Download Phase 4E Evaluation Report (PDF)",
-                data=pdf_bytes,
-                file_name=f"cynthera_phase4e_evaluation_{time.strftime('%Y%m%d_%H%M%S')}.pdf",
-                mime="application/pdf",
-                type="primary",
-                use_container_width=True,
-            )
-        except Exception as exc:
-            st.warning(f"PDF export failed: {exc}")
-    else:
-        st.info("Click **🚀 Run Phase 4E Benchmark** above to run the evaluation suite and generate the report.")
+    with st.expander("⚡ Live Pipeline Benchmark Execution", expanded=False):
+        st.markdown(
+            "<p style='color: #94a3b8;'>Optionally re-execute all 24 benchmark cases through the live MasterOrchestrator pipeline.</p>",
+            unsafe_allow_html=True,
+        )
+        run_bench_btn = st.button("🚀 Re-Run Live Benchmark", type="primary", use_container_width=True)
+        if run_bench_btn:
+            with st.spinner("Running Live Benchmark & Ablation Study..."):
+                try:
+                    from backend.evaluation.benchmark_runner import BenchmarkRunner
+                    runner = BenchmarkRunner()
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    report = loop.run_until_complete(runner.run_benchmark(bypass_cache=True, include_ablations=True))
+                    st.session_state.phase4e_report = report
+                    st.success("✅ Live benchmark complete!")
+                    st.rerun()
+                except Exception as exc:
+                    st.error(f"Live benchmark failed: {exc}")
 

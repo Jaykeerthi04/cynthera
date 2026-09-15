@@ -146,3 +146,33 @@ WEIGHT_CONFIGS: dict[str, WeightConfig] = {
     "CONFIG_B": CONFIG_B,
     "CONFIG_C": CONFIG_C,
 }
+
+# ── Calibration Provenance ──────────────────────────────────────────────────
+# Records which WeightConfig was selected as best during Phase 5.8 DEV calibration.
+# Updated after running scratch/run_phase5_8_calibration.py on the DEVELOPMENT split.
+# DO NOT modify this based on TEST split results — that would be train-test contamination.
+# This constant is documentation-only: it is not used by any production code path.
+CALIBRATION_SELECTED_CONFIG: str = "CONFIG_A"
+CALIBRATION_DEV_MCC: float = 1.0000
+
+
+@dataclass(frozen=True)
+class CalibrationMetadata:
+    selected_config: str = "CONFIG_A"
+    selection_metric: str = "MCC"
+    selection_split: str = "DEVELOPMENT"
+    test_used_for_selection: bool = False
+    status: str = "FROZEN"
+    dev_cases_count: int = 11
+    dev_mcc: float = 1.0000
+    dev_f1: float = 0.3333
+    dev_accuracy: float = 0.3636
+    notes: str = (
+        "CONFIG_A selected as standard scientific prior tie-breaker on DEVELOPMENT split. "
+        "All candidate configurations (CONFIG_A, CONFIG_B, CONFIG_C) performed identically "
+        "on the 11 DEV cases (MCC=1.0, F1=0.333, Acc=0.364). TEST split was strictly isolated."
+    )
+
+
+CALIBRATION_METADATA: CalibrationMetadata = CalibrationMetadata()
+

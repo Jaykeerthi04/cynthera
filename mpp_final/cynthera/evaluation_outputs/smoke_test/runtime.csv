@@ -1,0 +1,2 @@
+case_id,drug,disease,category,status,prediction,expected,runtime_seconds,mechanistic_score,support_score,cache_hit
+CYN-003,Lisinopril,Hypertension,Established positive,SUCCESS,UNCERTAIN,SUPPORT,0.12,0.49,0.9685,True
