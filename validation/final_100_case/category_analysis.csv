@@ -1,0 +1,9 @@
+category,total_cases,support_count,oppose_count,uncertain_count,accuracy,balanced_accuracy,macro_f1,false_promising_count,false_oppose_count,uncertainty_errors,dominant_failure_mode
+Category A: Clear positive,20,17,0,3,0.85,0.85,0.3063,0,0,3,Uncertainty Degeneracy (Weak Mechanistic / Opposition Signal)
+Category B: Negative / failed / hard-negative,20,4,4,12,0.35,0.35,0.3784,2,0,11,Uncertainty Degeneracy (Weak Mechanistic / Opposition Signal)
+Category C: Contradiction / therapeutic direction / safety,10,4,1,5,0.4,0.4,0.2424,0,1,5,Uncertainty Degeneracy (Weak Mechanistic / Opposition Signal)
+Category D: Cancer / subtype / biomarker / clinical evidence,10,5,2,3,0.4,0.4,0.2222,1,2,3,Uncertainty Degeneracy (Weak Mechanistic / Opposition Signal)
+Category E: Mechanistic / off-label / multi-target,10,6,1,3,0.7,0.7,0.4744,0,1,2,Uncertainty Degeneracy (Weak Mechanistic / Opposition Signal)
+Category F: Multi-target / metabolic / cardiovascular,10,7,1,2,0.7,0.7,0.441,1,0,2,Uncertainty Degeneracy (Weak Mechanistic / Opposition Signal)
+Category G: Safety / veto / contradiction,10,3,0,7,0.2,0.2,0.1905,1,0,7,Uncertainty Degeneracy (Weak Mechanistic / Opposition Signal)
+Category H: Clinical trial attribution / combination / registry,10,8,0,2,0.8,0.8,0.3137,0,0,2,Uncertainty Degeneracy (Weak Mechanistic / Opposition Signal)

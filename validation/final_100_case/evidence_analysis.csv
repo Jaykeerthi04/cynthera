@@ -1,0 +1,101 @@
+case_id,drug,disease,mechanistic_status,ms_score,ms_level,targets_found,trials_retrieved,trials_with_results,trials_attributed,trials_negative,support_score,support_level,is_support_quantity_dominated,opposition_score,opposition_level,independent_negative_groups,serialization_status
+TC-001,Lisinopril,Hypertension,Robust Grounded Mechanistic Chain,0.49,MEDIUM,4,20,4,20,0,0.9913,HIGH,NO,0.0,NONE,0,CONSISTENT
+TC-002,Aspirin,Secondary cardiovascular prevention,Target Identified but No Disease Pathway,0.0,NONE,1,20,3,20,0,0.9931,HIGH,NO,0.0,NONE,0,CONSISTENT
+TC-003,Budesonide,Asthma,Robust Grounded Mechanistic Chain,0.49,MEDIUM,3,20,8,20,0,0.9899,HIGH,NO,0.0,NONE,0,CONSISTENT
+TC-004,Fluticasone,Allergic rhinitis,Robust Grounded Mechanistic Chain,0.4132,MEDIUM,1,20,9,20,0,0.9878,HIGH,NO,0.0,NONE,0,CONSISTENT
+TC-005,Trastuzumab,HER2-positive breast cancer,Target Identified but No Disease Pathway,0.0,NONE,1,20,6,20,0,0.9948,HIGH,NO,0.0,NONE,0,CONSISTENT
+TC-006,Tamoxifen,ER-positive breast cancer,Target Identified but No Disease Pathway,0.0,NONE,4,20,4,20,0,0.9888,HIGH,NO,0.0,NONE,0,CONSISTENT
+TC-007,Metformin,Type 2 diabetes,Robust Grounded Mechanistic Chain,0.3866,LOW,1,20,7,20,0,0.9867,HIGH,NO,0.0,NONE,0,CONSISTENT
+TC-008,Atorvastatin,Hypercholesterolemia,Robust Grounded Mechanistic Chain,0.4482,MEDIUM,1,20,11,20,0,0.964,HIGH,NO,0.0,NONE,0,CONSISTENT
+TC-009,Levothyroxine,Hypothyroidism,Robust Grounded Mechanistic Chain,0.4134,MEDIUM,4,20,2,20,0,0.989,HIGH,NO,0.0,NONE,0,CONSISTENT
+TC-010,Amoxicillin,Bacterial infection,Sparse or High-Decay Multi-Hop Path,0.2924,LOW,2,20,3,20,0,0.9866,HIGH,NO,0.3187,MODERATE,1,CONSISTENT
+TC-011,Amlodipine,Hypertension,Robust Grounded Mechanistic Chain,0.3761,LOW,1,20,4,20,0,0.9878,HIGH,NO,0.0,NONE,0,CONSISTENT
+TC-012,Losartan,Hypertension,Robust Grounded Mechanistic Chain,0.4073,MEDIUM,4,20,2,20,0,0.989,HIGH,NO,0.0,NONE,0,CONSISTENT
+TC-013,Omeprazole,GERD,Robust Grounded Mechanistic Chain,0.49,MEDIUM,4,20,7,20,0,0.9854,HIGH,NO,0.0,NONE,0,CONSISTENT
+TC-014,Sertraline,Major depressive disorder,Robust Grounded Mechanistic Chain,0.4224,MEDIUM,5,20,8,20,0,0.9894,HIGH,NO,0.0,NONE,0,CONSISTENT
+TC-015,Albuterol,Asthma,Robust Grounded Mechanistic Chain,0.49,MEDIUM,3,20,9,20,0,0.9886,HIGH,NO,0.0,NONE,0,CONSISTENT
+TC-016,Warfarin,Atrial fibrillation / stroke prevention,Target Identified but No Disease Pathway,0.0,NONE,3,20,8,20,0,0.989,HIGH,NO,0.0,NONE,0,CONSISTENT
+TC-017,Methotrexate,Rheumatoid arthritis,Robust Grounded Mechanistic Chain,0.49,MEDIUM,3,20,8,20,0,0.9891,HIGH,NO,0.0639,LOW,1,CONSISTENT
+TC-018,Etanercept,Rheumatoid arthritis,Robust Grounded Mechanistic Chain,0.49,MEDIUM,1,20,7,20,0,0.9878,HIGH,NO,0.0,NONE,0,CONSISTENT
+TC-019,Imatinib,Chronic myeloid leukemia,Robust Grounded Mechanistic Chain,0.4787,MEDIUM,5,20,6,20,0,0.9879,HIGH,NO,0.0,NONE,0,CONSISTENT
+TC-020,Rituximab,B-cell non-Hodgkin lymphoma,Robust Grounded Mechanistic Chain,0.4212,MEDIUM,1,20,7,20,0,0.9861,HIGH,NO,0.0,NONE,0,CONSISTENT
+TC-021,Ivermectin,COVID-19,Target Identified but No Disease Pathway,0.0,NONE,3,20,3,20,0,0.989,HIGH,NO,0.6293,HIGH,3,CONSISTENT
+TC-022,Fluvoxamine,COVID-19,Robust Grounded Mechanistic Chain,0.3437,LOW,4,14,7,14,0,0.9955,HIGH,NO,0.512,HIGH,2,CONSISTENT
+TC-023,Azithromycin,COVID-19,Target Identified but No Disease Pathway,0.0,NONE,1,20,4,20,0,0.9861,HIGH,NO,0.3187,MODERATE,1,CONSISTENT
+TC-024,Hydroxychloroquine,COVID-19,Zero Targets / Disconnected Biological Graph,0.0,NONE,0,20,0,20,0,0.9856,HIGH,NO,0.512,HIGH,2,CONSISTENT
+TC-025,Interferon beta-1a,COVID-19,Robust Grounded Mechanistic Chain,0.4136,MEDIUM,1,14,2,14,0,0.9607,HIGH,NO,0.0,NONE,0,CONSISTENT
+TC-026,Niacin,Cardiovascular disease,Target Identified but No Disease Pathway,0.0,NONE,4,20,4,20,0,0.9916,HIGH,NO,0.512,HIGH,2,CONSISTENT
+TC-027,Doxorubicin,Breast cancer,Target Identified but No Disease Pathway,0.0,NONE,1,20,9,20,0,0.9878,HIGH,NO,0.0,NONE,0,CONSISTENT
+TC-028,Celecoxib,Alzheimer's disease,Robust Grounded Mechanistic Chain,0.3233,LOW,4,4,0,4,0,0.99,HIGH,NO,0.0,NONE,0,CONSISTENT
+TC-029,Simvastatin,Sepsis,Target Identified but No Disease Pathway,0.0,NONE,1,5,2,5,0,0.9867,HIGH,NO,0.0,NONE,0,CONSISTENT
+TC-030,Dexamethasone,Traumatic brain injury,Robust Grounded Mechanistic Chain,0.49,MEDIUM,3,7,2,7,0,0.9862,HIGH,NO,0.0,NONE,0,CONSISTENT
+TC-031,Furosemide,Depression,Target Identified but No Disease Pathway,0.0,NONE,4,0,0,0,0,0.9854,HIGH,NO,0.0,NONE,0,CONSISTENT
+TC-032,Warfarin,Leishmaniasis,Robust Grounded Mechanistic Chain,0.3714,LOW,3,0,0,0,0,0.9382,HIGH,NO,0.0,NONE,0,CONSISTENT
+TC-033,Metformin,Alzheimer's disease,Target Identified but No Disease Pathway,0.0,NONE,1,5,2,5,0,0.9837,HIGH,NO,0.0,NONE,0,CONSISTENT
+TC-034,Aspirin,Alzheimer's disease,Robust Grounded Mechanistic Chain,0.3233,LOW,1,1,0,1,0,0.9837,HIGH,NO,0.0,NONE,0,CONSISTENT
+TC-035,Ivermectin,Cancer,Target Identified but No Disease Pathway,0.0,NONE,3,5,0,5,0,0.9848,HIGH,NO,0.0,NONE,0,CONSISTENT
+TC-036,Hydroxychloroquine,Rheumatoid arthritis,Zero Targets / Disconnected Biological Graph,0.0,NONE,0,20,4,20,0,0.9873,HIGH,NO,0.0,NONE,0,CONSISTENT
+TC-037,Azithromycin,Asthma,Target Identified but No Disease Pathway,0.0,NONE,1,20,6,20,0,0.9861,HIGH,NO,0.3187,MODERATE,1,CONSISTENT
+TC-038,Simvastatin,Alzheimer's disease,Target Identified but No Disease Pathway,0.0,NONE,1,7,4,7,0,0.9853,HIGH,NO,0.512,HIGH,2,CONSISTENT
+TC-039,Celecoxib,Cancer,Robust Grounded Mechanistic Chain,0.4894,MEDIUM,4,20,2,20,0,0.9854,HIGH,NO,0.2656,MODERATE,1,CONSISTENT
+TC-040,Dexamethasone,COVID-19,Robust Grounded Mechanistic Chain,0.4142,MEDIUM,3,20,1,20,0,0.9848,HIGH,NO,0.0,NONE,0,CONSISTENT
+TC-041,Etanercept,Sepsis,Target Identified but No Disease Pathway,0.0,NONE,1,0,0,0,0,0.9837,HIGH,NO,0.0,NONE,0,CONSISTENT
+TC-042,Infliximab,Heart failure,Robust Grounded Mechanistic Chain,0.3697,LOW,1,2,0,2,0,0.9837,HIGH,NO,0.0,NONE,0,CONSISTENT
+TC-043,Rosiglitazone,Type 2 diabetes,Robust Grounded Mechanistic Chain,0.49,MEDIUM,3,20,6,20,0,0.9948,HIGH,NO,0.3187,MODERATE,1,CONSISTENT
+TC-044,Rofecoxib,Cardiovascular disease,Robust Grounded Mechanistic Chain,0.39,LOW,5,0,0,0,0,0.994,HIGH,NO,0.0,NONE,0,CONSISTENT
+TC-045,Varenicline,Smoking cessation,Robust Grounded Mechanistic Chain,0.3907,LOW,5,20,10,20,0,0.988,HIGH,NO,0.0,NONE,0,CONSISTENT
+TC-046,Propranolol,Migraine,Robust Grounded Mechanistic Chain,0.4111,MEDIUM,3,20,4,20,0,0.9871,HIGH,NO,0.0,NONE,0,CONSISTENT
+TC-047,Gabapentin,Neuropathic pain,Robust Grounded Mechanistic Chain,0.49,MEDIUM,5,20,3,20,0,0.988,HIGH,NO,0.0,NONE,0,CONSISTENT
+TC-048,Pregabalin,Fibromyalgia,Robust Grounded Mechanistic Chain,0.49,MEDIUM,2,20,6,20,0,0.9882,HIGH,NO,0.512,HIGH,2,CONSISTENT
+TC-049,Colchicine,Gout,Robust Grounded Mechanistic Chain,0.49,MEDIUM,4,20,10,20,0,0.989,HIGH,NO,0.0,NONE,0,CONSISTENT
+TC-050,Allopurinol,Gout,Robust Grounded Mechanistic Chain,0.49,MEDIUM,3,20,9,20,0,0.9891,HIGH,NO,0.0,NONE,0,CONSISTENT
+TC-051,Valproic acid,Glioblastoma,Target Identified but No Disease Pathway,0.0,NONE,1,10,5,10,0,0.985,HIGH,NO,0.0,NONE,0,CONSISTENT
+TC-052,Nivolumab,Glioblastoma,Robust Grounded Mechanistic Chain,0.4489,MEDIUM,1,20,8,20,0,0.9861,HIGH,NO,0.0,NONE,0,CONSISTENT
+TC-053,Pembrolizumab,Glioblastoma,Robust Grounded Mechanistic Chain,0.4489,MEDIUM,1,20,5,20,0,0.985,HIGH,NO,0.0,NONE,0,CONSISTENT
+TC-054,Bevacizumab,Glioblastoma,Robust Grounded Mechanistic Chain,0.49,MEDIUM,1,20,9,20,0,0.9878,HIGH,NO,0.0,NONE,0,CONSISTENT
+TC-055,Erlotinib,Non-small-cell lung cancer,Target Identified but No Disease Pathway,0.0,NONE,3,20,12,20,0,0.9874,HIGH,NO,0.0,NONE,0,CONSISTENT
+TC-056,Gefitinib,EGFR-positive lung cancer,Robust Grounded Mechanistic Chain,0.49,MEDIUM,2,20,5,20,0,0.953,HIGH,NO,0.0,NONE,0,CONSISTENT
+TC-057,Osimertinib,EGFR-mutant lung cancer,Target Identified but No Disease Pathway,0.0,NONE,1,20,2,20,0,0.986,HIGH,NO,0.0,NONE,0,CONSISTENT
+TC-058,Crizotinib,ALK-positive lung cancer,Target Identified but No Disease Pathway,0.0,NONE,4,20,10,20,0,0.9874,HIGH,NO,0.2656,MODERATE,1,CONSISTENT
+TC-059,Bortezomib,Multiple myeloma,Robust Grounded Mechanistic Chain,0.49,MEDIUM,5,20,5,20,0,0.9898,HIGH,NO,0.0,NONE,0,CONSISTENT
+TC-060,Lenalidomide,Multiple myeloma,Robust Grounded Mechanistic Chain,0.49,MEDIUM,2,20,6,20,0,0.9882,HIGH,NO,0.0,NONE,0,CONSISTENT
+TC-061,Bevacizumab,Age-related macular degeneration,Robust Grounded Mechanistic Chain,0.49,MEDIUM,1,20,6,20,0,0.9857,HIGH,NO,0.0,NONE,0,CONSISTENT
+TC-062,Ranibizumab,Age-related macular degeneration,Robust Grounded Mechanistic Chain,0.49,MEDIUM,1,20,5,20,0,0.9942,HIGH,NO,0.0,NONE,0,CONSISTENT
+TC-063,Latanoprost,Glaucoma,Robust Grounded Mechanistic Chain,0.49,MEDIUM,4,20,4,20,0,0.989,HIGH,NO,0.0,NONE,0,CONSISTENT
+TC-064,Timolol,Glaucoma,Robust Grounded Mechanistic Chain,0.49,MEDIUM,5,20,7,20,0,0.9894,HIGH,NO,0.0,NONE,0,CONSISTENT
+TC-065,Sildenafil,Pulmonary arterial hypertension,Robust Grounded Mechanistic Chain,0.4058,MEDIUM,1,20,9,20,0,0.9878,HIGH,NO,0.2656,MODERATE,1,CONSISTENT
+TC-066,Sildenafil,Alzheimer's disease,Target Identified but No Disease Pathway,0.0,NONE,1,1,1,1,0,0.9837,HIGH,NO,0.0,NONE,0,CONSISTENT
+TC-067,Sildenafil,Heart failure,Robust Grounded Mechanistic Chain,0.3783,LOW,1,20,4,20,0,0.9861,HIGH,NO,0.0,NONE,0,CONSISTENT
+TC-068,Spironolactone,Heart failure,Robust Grounded Mechanistic Chain,0.49,MEDIUM,4,20,6,20,0,0.989,HIGH,NO,0.3187,MODERATE,1,CONSISTENT
+TC-069,Digoxin,Heart failure,Robust Grounded Mechanistic Chain,0.49,MEDIUM,3,20,2,20,0,0.9665,HIGH,NO,0.0,NONE,0,CONSISTENT
+TC-070,Verapamil,Migraine,Sparse or High-Decay Multi-Hop Path,0.2933,LOW,1,4,1,4,0,0.952,HIGH,NO,0.0,NONE,0,CONSISTENT
+TC-071,Dapagliflozin,Heart failure,Robust Grounded Mechanistic Chain,0.49,MEDIUM,3,20,1,20,0,0.9665,HIGH,NO,0.3187,MODERATE,1,CONSISTENT
+TC-072,Empagliflozin,Heart failure,Robust Grounded Mechanistic Chain,0.4022,MEDIUM,6,20,4,20,0,0.9699,HIGH,NO,0.3187,MODERATE,1,CONSISTENT
+TC-073,Semaglutide,Type 2 diabetes,Robust Grounded Mechanistic Chain,0.49,MEDIUM,2,20,3,20,0,0.9624,HIGH,NO,0.3187,MODERATE,1,CONSISTENT
+TC-074,Semaglutide,Alzheimer's disease,Robust Grounded Mechanistic Chain,0.353,LOW,2,9,2,9,0,0.9583,HIGH,NO,0.0,NONE,0,CONSISTENT
+TC-075,Pioglitazone,Alzheimer's disease,Target Identified but No Disease Pathway,0.0,NONE,4,3,2,3,0,0.9861,HIGH,NO,0.512,HIGH,2,CONSISTENT
+TC-076,Statin,Sepsis,Target Identified but No Disease Pathway,0.0,NONE,2,10,5,10,0,0.9537,HIGH,NO,0.0,NONE,0,CONSISTENT
+TC-077,Atorvastatin,Cardiovascular disease,Robust Grounded Mechanistic Chain,0.3978,LOW,1,20,1,20,0,0.964,HIGH,NO,0.0,NONE,0,CONSISTENT
+TC-078,Simvastatin,Cardiovascular disease,Robust Grounded Mechanistic Chain,0.49,MEDIUM,1,20,10,20,0,0.964,HIGH,NO,0.3187,MODERATE,1,CONSISTENT
+TC-079,Fenofibrate,Cardiovascular disease,Robust Grounded Mechanistic Chain,0.4339,MEDIUM,3,20,10,20,0,0.9665,HIGH,NO,0.0,NONE,0,CONSISTENT
+TC-080,Ezetimibe,Cardiovascular disease,Robust Grounded Mechanistic Chain,0.49,MEDIUM,3,20,5,20,0,0.9665,HIGH,NO,0.3187,MODERATE,1,CONSISTENT
+TC-081,Warfarin,Bleeding disorder,Target Identified but No Disease Pathway,0.0,NONE,3,20,1,20,0,0.9553,HIGH,NO,0.0,NONE,0,CONSISTENT
+TC-082,Aspirin,Hemorrhagic stroke,Robust Grounded Mechanistic Chain,0.4042,MEDIUM,1,5,2,5,0,0.9592,HIGH,NO,0.0,NONE,0,CONSISTENT
+TC-083,NSAIDs,Peptic ulcer disease,Robust Grounded Mechanistic Chain,0.49,MEDIUM,2,20,5,20,0,0.9537,HIGH,NO,0.0,NONE,0,CONSISTENT
+TC-084,Methotrexate,Pregnancy-related condition,Target Identified but No Disease Pathway,0.0,NONE,3,3,1,3,0,0.9104,HIGH,NO,0.0,NONE,0,CONSISTENT
+TC-085,Isotretinoin,Pregnancy,Robust Grounded Mechanistic Chain,0.357,LOW,3,11,4,11,0,0.9553,HIGH,NO,0.0,NONE,0,CONSISTENT
+TC-086,Clozapine,Schizophrenia,Robust Grounded Mechanistic Chain,0.49,MEDIUM,5,20,1,20,0,0.9869,HIGH,NO,0.0,NONE,0,CONSISTENT
+TC-087,Thalidomide,Multiple myeloma,Robust Grounded Mechanistic Chain,0.49,MEDIUM,3,20,4,20,0,0.9665,HIGH,NO,0.0,NONE,0,CONSISTENT
+TC-088,Doxorubicin,Cardiomyopathy,Target Identified but No Disease Pathway,0.0,NONE,1,13,2,13,0,0.9798,HIGH,NO,0.0,NONE,0,CONSISTENT
+TC-089,Digoxin,Atrial fibrillation,Robust Grounded Mechanistic Chain,0.49,MEDIUM,3,20,3,20,0,0.9665,HIGH,NO,0.0,NONE,0,CONSISTENT
+TC-090,Amiodarone,Atrial fibrillation,Robust Grounded Mechanistic Chain,0.3929,LOW,3,20,3,20,0,0.962,HIGH,NO,0.0,NONE,0,CONSISTENT
+TC-091,Budesonide/Formoterol,Asthma,Robust Grounded Mechanistic Chain,0.4209,MEDIUM,4,20,4,20,0,0.9677,HIGH,NO,0.3187,MODERATE,1,CONSISTENT
+TC-092,Budesonide,COPD,Robust Grounded Mechanistic Chain,0.49,MEDIUM,3,20,6,20,0,0.9553,HIGH,NO,0.0,NONE,0,CONSISTENT
+TC-093,Metformin,Type 2 diabetes,Robust Grounded Mechanistic Chain,0.3866,LOW,1,20,7,20,0,0.9867,HIGH,NO,0.0,NONE,0,CONSISTENT
+TC-094,Warfarin,Thrombosis,Robust Grounded Mechanistic Chain,0.4262,MEDIUM,3,20,5,20,0,0.9665,HIGH,NO,0.0,NONE,0,CONSISTENT
+TC-095,Heparin,Thrombosis,Robust Grounded Mechanistic Chain,0.49,MEDIUM,1,20,4,20,0,0.964,HIGH,NO,0.0,NONE,0,CONSISTENT
+TC-096,Placebo,Disease treatment,Zero Targets / Disconnected Biological Graph,0.0,NONE,0,0,0,0,0,0.0,LOW,NO,0.0,NONE,0,CONSISTENT
+TC-097,Etanercept,Rheumatoid arthritis,Robust Grounded Mechanistic Chain,0.49,MEDIUM,1,20,7,20,0,0.9878,HIGH,NO,0.0,NONE,0,CONSISTENT
+TC-098,Fluticasone,Allergic rhinitis,Robust Grounded Mechanistic Chain,0.4132,MEDIUM,1,20,9,20,0,0.9878,HIGH,NO,0.0,NONE,0,CONSISTENT
+TC-099,Tamoxifen,Breast cancer,Robust Grounded Mechanistic Chain,0.49,MEDIUM,4,20,3,20,0,0.9677,HIGH,NO,0.3187,MODERATE,1,CONSISTENT
+TC-100,Trastuzumab,HER2-positive breast cancer,Target Identified but No Disease Pathway,0.0,NONE,1,20,6,20,0,0.9948,HIGH,NO,0.0,NONE,0,CONSISTENT

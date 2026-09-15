@@ -1,0 +1,26 @@
+# CYNTHERA Final 100-Case Validation — Run Metadata
+
+- **Date & Timestamp**: 2026-09-15T13:46:25.210648+00:00
+- **Git Commit SHA**: `2355cfbd6a37343823ef8f7e07c8b58b5ed4ae94`
+- **Branch**: `main`
+- **Git Status**: Working tree clean (untracked `scratch/manifest_100_cases.json`, `validation/final_100_case/`)
+- **Python Version**: `3.12.7 (tags/v3.12.7:0b05ead, Oct 1 2024, 03:06:41) [MSC v.1941 64 bit (AMD64)]`
+- **Core Dependencies**:
+  - `pydantic`: `2.13.4`
+  - `fastapi`: `0.141.1`
+  - `httpx`: `0.28.1`
+- **Benchmark Manifest**: `scratch/manifest_100_cases.json` (100 cases, frozen 8 categories)
+- **Evaluator Script**: `backend/evaluation/run_100_case_evaluation.py`
+- **Retrieval Policy**: `RetrievalPolicy.STANDARD` (DB raw/evaluation cache enabled)
+- **Cache Setting**: `use_cache=True` (`data/cynthera.db` SQLite raw and evaluation response cache)
+- **Scoring Configuration**:
+  - Production 3-dimensional scoring: Support Score (SS), Mechanistic Score (MS), Risk Score (RS)
+  - Rule Set: `3.2`
+  - Mechanistic Path Minimum Confidence: `_MIN_CONFIDENCE = 0.0001`
+  - Hop decay factor: `0.85`
+  - Quality multipliers: RCT `1.00`, Observational `0.65`, Preclinical `0.40`
+- **LLM Claim Extraction Configuration**:
+  - Primary Provider: Groq API (`qwen/qwen3.8-27b`, verified live HTTP 200 response)
+  - Fallback Cascade: `groq/compound-mini`, `allam-2-7b`
+  - Secondary Provider: OpenRouter API (`nvidia/nemotron-3.5-lightning:free`, `liquid/lfm-2.5-2.6b:free`)
+  - Tertiary Fallback: Deterministic biomedical rule-based keyword extraction

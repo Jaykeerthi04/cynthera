@@ -1,0 +1,101 @@
+case_id,drug,disease,benchmark_label,system_prediction,evidence_summary,label_concern,confidence_of_concern
+TC-001,Lisinopril,Hypertension,SUPPORT,SUPPORT,Standard evaluation case for Lisinopril in Hypertension.,None identified. Benchmark label matches medical consensus.,VALID LABEL
+TC-002,Aspirin,Secondary cardiovascular prevention,SUPPORT,UNCERTAIN,Standard evaluation case for Aspirin in Secondary cardiovascular prevention.,None identified. Benchmark label matches medical consensus.,VALID LABEL
+TC-003,Budesonide,Asthma,SUPPORT,SUPPORT,Standard evaluation case for Budesonide in Asthma.,None identified. Benchmark label matches medical consensus.,VALID LABEL
+TC-004,Fluticasone,Allergic rhinitis,SUPPORT,SUPPORT,Standard evaluation case for Fluticasone in Allergic rhinitis.,None identified. Benchmark label matches medical consensus.,VALID LABEL
+TC-005,Trastuzumab,HER2-positive breast cancer,SUPPORT,SUPPORT,Standard evaluation case for Trastuzumab in HER2-positive breast cancer.,None identified. Benchmark label matches medical consensus.,VALID LABEL
+TC-006,Tamoxifen,ER-positive breast cancer,SUPPORT,SUPPORT,Standard evaluation case for Tamoxifen in ER-positive breast cancer.,None identified. Benchmark label matches medical consensus.,VALID LABEL
+TC-007,Metformin,Type 2 diabetes,SUPPORT,SUPPORT,Standard evaluation case for Metformin in Type 2 diabetes.,None identified. Benchmark label matches medical consensus.,VALID LABEL
+TC-008,Atorvastatin,Hypercholesterolemia,SUPPORT,SUPPORT,Standard evaluation case for Atorvastatin in Hypercholesterolemia.,None identified. Benchmark label matches medical consensus.,VALID LABEL
+TC-009,Levothyroxine,Hypothyroidism,SUPPORT,SUPPORT,Standard evaluation case for Levothyroxine in Hypothyroidism.,None identified. Benchmark label matches medical consensus.,VALID LABEL
+TC-010,Amoxicillin,Bacterial infection,SUPPORT,SUPPORT,Standard evaluation case for Amoxicillin in Bacterial infection.,None identified. Benchmark label matches medical consensus.,VALID LABEL
+TC-011,Amlodipine,Hypertension,SUPPORT,SUPPORT,Standard evaluation case for Amlodipine in Hypertension.,None identified. Benchmark label matches medical consensus.,VALID LABEL
+TC-012,Losartan,Hypertension,SUPPORT,SUPPORT,Standard evaluation case for Losartan in Hypertension.,None identified. Benchmark label matches medical consensus.,VALID LABEL
+TC-013,Omeprazole,GERD,SUPPORT,UNCERTAIN,Standard evaluation case for Omeprazole in GERD.,None identified. Benchmark label matches medical consensus.,VALID LABEL
+TC-014,Sertraline,Major depressive disorder,SUPPORT,SUPPORT,Standard evaluation case for Sertraline in Major depressive disorder.,None identified. Benchmark label matches medical consensus.,VALID LABEL
+TC-015,Albuterol,Asthma,SUPPORT,SUPPORT,Standard evaluation case for Albuterol in Asthma.,None identified. Benchmark label matches medical consensus.,VALID LABEL
+TC-016,Warfarin,Atrial fibrillation / stroke prevention,SUPPORT,SUPPORT,Standard evaluation case for Warfarin in Atrial fibrillation / stroke prevention.,None identified. Benchmark label matches medical consensus.,VALID LABEL
+TC-017,Methotrexate,Rheumatoid arthritis,SUPPORT,SUPPORT,Standard evaluation case for Methotrexate in Rheumatoid arthritis.,None identified. Benchmark label matches medical consensus.,VALID LABEL
+TC-018,Etanercept,Rheumatoid arthritis,SUPPORT,SUPPORT,Standard evaluation case for Etanercept in Rheumatoid arthritis.,None identified. Benchmark label matches medical consensus.,VALID LABEL
+TC-019,Imatinib,Chronic myeloid leukemia,SUPPORT,UNCERTAIN,Standard evaluation case for Imatinib in Chronic myeloid leukemia.,None identified. Benchmark label matches medical consensus.,VALID LABEL
+TC-020,Rituximab,B-cell non-Hodgkin lymphoma,SUPPORT,SUPPORT,Standard evaluation case for Rituximab in B-cell non-Hodgkin lymphoma.,None identified. Benchmark label matches medical consensus.,VALID LABEL
+TC-021,Ivermectin,COVID-19,OPPOSE,UNCERTAIN,Standard evaluation case for Ivermectin in COVID-19.,None identified. Benchmark label matches medical consensus.,VALID LABEL
+TC-022,Fluvoxamine,COVID-19,OPPOSE,OPPOSE,TOGETHER trial showed 32% reduction in emergency room visits/hospitalizations in outpatients; NIH guidelines marked it as inconclusive/insufficient evidence rather than outright negative.,"Benchmark marks OPPOSE as ground truth, but clinical guidelines consider this inconclusive/uncertain.",STRONG LABEL CONCERN
+TC-023,Azithromycin,COVID-19,OPPOSE,SUPPORT,Standard evaluation case for Azithromycin in COVID-19.,None identified. Benchmark label matches medical consensus.,VALID LABEL
+TC-024,Hydroxychloroquine,COVID-19,OPPOSE,OPPOSE,Standard evaluation case for Hydroxychloroquine in COVID-19.,None identified. Benchmark label matches medical consensus.,VALID LABEL
+TC-025,Interferon beta-1a,COVID-19,OPPOSE,UNCERTAIN,Standard evaluation case for Interferon beta-1a in COVID-19.,None identified. Benchmark label matches medical consensus.,VALID LABEL
+TC-026,Niacin,Cardiovascular disease,OPPOSE,OPPOSE,Standard evaluation case for Niacin in Cardiovascular disease.,None identified. Benchmark label matches medical consensus.,VALID LABEL
+TC-027,Doxorubicin,Breast cancer,SUPPORT,SUPPORT,Standard evaluation case for Doxorubicin in Breast cancer.,None identified. Benchmark label matches medical consensus.,VALID LABEL
+TC-028,Celecoxib,Alzheimer's disease,OPPOSE,UNCERTAIN,Standard evaluation case for Celecoxib in Alzheimer's disease.,None identified. Benchmark label matches medical consensus.,VALID LABEL
+TC-029,Simvastatin,Sepsis,OPPOSE,UNCERTAIN,Standard evaluation case for Simvastatin in Sepsis.,None identified. Benchmark label matches medical consensus.,VALID LABEL
+TC-030,Dexamethasone,Traumatic brain injury,OPPOSE,UNCERTAIN,Standard evaluation case for Dexamethasone in Traumatic brain injury.,None identified. Benchmark label matches medical consensus.,VALID LABEL
+TC-031,Furosemide,Depression,OPPOSE,UNCERTAIN,Standard evaluation case for Furosemide in Depression.,None identified. Benchmark label matches medical consensus.,VALID LABEL
+TC-032,Warfarin,Leishmaniasis,OPPOSE,UNCERTAIN,Standard evaluation case for Warfarin in Leishmaniasis.,None identified. Benchmark label matches medical consensus.,VALID LABEL
+TC-033,Metformin,Alzheimer's disease,UNCERTAIN,UNCERTAIN,Standard evaluation case for Metformin in Alzheimer's disease.,None identified. Benchmark label matches medical consensus.,VALID LABEL
+TC-034,Aspirin,Alzheimer's disease,OPPOSE,UNCERTAIN,Standard evaluation case for Aspirin in Alzheimer's disease.,None identified. Benchmark label matches medical consensus.,VALID LABEL
+TC-035,Ivermectin,Cancer,OPPOSE,UNCERTAIN,Standard evaluation case for Ivermectin in Cancer.,None identified. Benchmark label matches medical consensus.,VALID LABEL
+TC-036,Hydroxychloroquine,Rheumatoid arthritis,SUPPORT,SUPPORT,Standard evaluation case for Hydroxychloroquine in Rheumatoid arthritis.,None identified. Benchmark label matches medical consensus.,VALID LABEL
+TC-037,Azithromycin,Asthma,UNCERTAIN,SUPPORT,GINA international clinical guidelines endorse Azithromycin as add-on therapy for persistent uncontrolled asthma based on AMAZES and AZISAST double-blind RCTs.,"Benchmark marks UNCERTAIN, yet established medical guidelines endorse therapeutic use.",STRONG LABEL CONCERN
+TC-038,Simvastatin,Alzheimer's disease,OPPOSE,OPPOSE,Standard evaluation case for Simvastatin in Alzheimer's disease.,None identified. Benchmark label matches medical consensus.,VALID LABEL
+TC-039,Celecoxib,Cancer,OPPOSE,UNCERTAIN,Standard evaluation case for Celecoxib in Cancer.,None identified. Benchmark label matches medical consensus.,VALID LABEL
+TC-040,Dexamethasone,COVID-19,SUPPORT,UNCERTAIN,Standard evaluation case for Dexamethasone in COVID-19.,None identified. Benchmark label matches medical consensus.,VALID LABEL
+TC-041,Etanercept,Sepsis,OPPOSE,UNCERTAIN,Standard evaluation case for Etanercept in Sepsis.,None identified. Benchmark label matches medical consensus.,VALID LABEL
+TC-042,Infliximab,Heart failure,OPPOSE,UNCERTAIN,Standard evaluation case for Infliximab in Heart failure.,None identified. Benchmark label matches medical consensus.,VALID LABEL
+TC-043,Rosiglitazone,Type 2 diabetes,SUPPORT,SUPPORT,"FDA approved for T2D (Avandia), but extensive RECORD and meta-analyses linked it to severe ischemic myocardial infarction, causing severe FDA restrictions and withdrawal in Europe.","Standard gold marks SUPPORT because of FDA approval, but clinical black-box risk makes this a nuanced candidate.",POSSIBLE LABEL ISSUE
+TC-044,Rofecoxib,Cardiovascular disease,OPPOSE,UNCERTAIN,Standard evaluation case for Rofecoxib in Cardiovascular disease.,None identified. Benchmark label matches medical consensus.,VALID LABEL
+TC-045,Varenicline,Smoking cessation,SUPPORT,UNCERTAIN,Standard evaluation case for Varenicline in Smoking cessation.,None identified. Benchmark label matches medical consensus.,VALID LABEL
+TC-046,Propranolol,Migraine,SUPPORT,SUPPORT,Standard evaluation case for Propranolol in Migraine.,None identified. Benchmark label matches medical consensus.,VALID LABEL
+TC-047,Gabapentin,Neuropathic pain,SUPPORT,UNCERTAIN,Standard evaluation case for Gabapentin in Neuropathic pain.,None identified. Benchmark label matches medical consensus.,VALID LABEL
+TC-048,Pregabalin,Fibromyalgia,SUPPORT,OPPOSE,"FDA approved (Lyrica) in 2007, but European EMA rejected the fibromyalgia indication twice citing insufficient long-term efficacy and risk of withdrawal.",Transatlantic regulatory disagreement: FDA approved vs EMA rejected.,POSSIBLE LABEL ISSUE
+TC-049,Colchicine,Gout,SUPPORT,SUPPORT,Standard evaluation case for Colchicine in Gout.,None identified. Benchmark label matches medical consensus.,VALID LABEL
+TC-050,Allopurinol,Gout,SUPPORT,SUPPORT,Standard evaluation case for Allopurinol in Gout.,None identified. Benchmark label matches medical consensus.,VALID LABEL
+TC-051,Valproic acid,Glioblastoma,UNCERTAIN,SUPPORT,Standard evaluation case for Valproic acid in Glioblastoma.,None identified. Benchmark label matches medical consensus.,VALID LABEL
+TC-052,Nivolumab,Glioblastoma,OPPOSE,UNCERTAIN,Standard evaluation case for Nivolumab in Glioblastoma.,None identified. Benchmark label matches medical consensus.,VALID LABEL
+TC-053,Pembrolizumab,Glioblastoma,OPPOSE,UNCERTAIN,Standard evaluation case for Pembrolizumab in Glioblastoma.,None identified. Benchmark label matches medical consensus.,VALID LABEL
+TC-054,Bevacizumab,Glioblastoma,SUPPORT,SUPPORT,Standard evaluation case for Bevacizumab in Glioblastoma.,None identified. Benchmark label matches medical consensus.,VALID LABEL
+TC-055,Erlotinib,Non-small-cell lung cancer,SUPPORT,SUPPORT,Standard evaluation case for Erlotinib in Non-small-cell lung cancer.,None identified. Benchmark label matches medical consensus.,VALID LABEL
+TC-056,Gefitinib,EGFR-positive lung cancer,SUPPORT,OPPOSE,Standard evaluation case for Gefitinib in EGFR-positive lung cancer.,None identified. Benchmark label matches medical consensus.,VALID LABEL
+TC-057,Osimertinib,EGFR-mutant lung cancer,SUPPORT,UNCERTAIN,Standard evaluation case for Osimertinib in EGFR-mutant lung cancer.,None identified. Benchmark label matches medical consensus.,VALID LABEL
+TC-058,Crizotinib,ALK-positive lung cancer,SUPPORT,OPPOSE,Standard evaluation case for Crizotinib in ALK-positive lung cancer.,None identified. Benchmark label matches medical consensus.,VALID LABEL
+TC-059,Bortezomib,Multiple myeloma,SUPPORT,SUPPORT,Standard evaluation case for Bortezomib in Multiple myeloma.,None identified. Benchmark label matches medical consensus.,VALID LABEL
+TC-060,Lenalidomide,Multiple myeloma,SUPPORT,SUPPORT,Standard evaluation case for Lenalidomide in Multiple myeloma.,None identified. Benchmark label matches medical consensus.,VALID LABEL
+TC-061,Bevacizumab,Age-related macular degeneration,SUPPORT,SUPPORT,Standard evaluation case for Bevacizumab in Age-related macular degeneration.,None identified. Benchmark label matches medical consensus.,VALID LABEL
+TC-062,Ranibizumab,Age-related macular degeneration,SUPPORT,SUPPORT,Standard evaluation case for Ranibizumab in Age-related macular degeneration.,None identified. Benchmark label matches medical consensus.,VALID LABEL
+TC-063,Latanoprost,Glaucoma,SUPPORT,SUPPORT,Standard evaluation case for Latanoprost in Glaucoma.,None identified. Benchmark label matches medical consensus.,VALID LABEL
+TC-064,Timolol,Glaucoma,SUPPORT,SUPPORT,Standard evaluation case for Timolol in Glaucoma.,None identified. Benchmark label matches medical consensus.,VALID LABEL
+TC-065,Sildenafil,Pulmonary arterial hypertension,SUPPORT,OPPOSE,Standard evaluation case for Sildenafil in Pulmonary arterial hypertension.,None identified. Benchmark label matches medical consensus.,VALID LABEL
+TC-066,Sildenafil,Alzheimer's disease,OPPOSE,UNCERTAIN,Standard evaluation case for Sildenafil in Alzheimer's disease.,None identified. Benchmark label matches medical consensus.,VALID LABEL
+TC-067,Sildenafil,Heart failure,OPPOSE,UNCERTAIN,Standard evaluation case for Sildenafil in Heart failure.,None identified. Benchmark label matches medical consensus.,VALID LABEL
+TC-068,Spironolactone,Heart failure,SUPPORT,SUPPORT,Standard evaluation case for Spironolactone in Heart failure.,None identified. Benchmark label matches medical consensus.,VALID LABEL
+TC-069,Digoxin,Heart failure,SUPPORT,SUPPORT,Standard evaluation case for Digoxin in Heart failure.,None identified. Benchmark label matches medical consensus.,VALID LABEL
+TC-070,Verapamil,Migraine,UNCERTAIN,UNCERTAIN,"Widely prescribed off-label by neurologists as first-line calcium channel blocker prophylactic for cluster headache and hemiplegic migraine, but lacks formal FDA indication.",Clinical practice reality (guideline prophylactic) differs from strict FDA approved gold label.,POSSIBLE LABEL ISSUE
+TC-071,Dapagliflozin,Heart failure,SUPPORT,SUPPORT,Standard evaluation case for Dapagliflozin in Heart failure.,None identified. Benchmark label matches medical consensus.,VALID LABEL
+TC-072,Empagliflozin,Heart failure,SUPPORT,SUPPORT,Standard evaluation case for Empagliflozin in Heart failure.,None identified. Benchmark label matches medical consensus.,VALID LABEL
+TC-073,Semaglutide,Type 2 diabetes,SUPPORT,SUPPORT,Standard evaluation case for Semaglutide in Type 2 diabetes.,None identified. Benchmark label matches medical consensus.,VALID LABEL
+TC-074,Semaglutide,Alzheimer's disease,OPPOSE,UNCERTAIN,Standard evaluation case for Semaglutide in Alzheimer's disease.,None identified. Benchmark label matches medical consensus.,VALID LABEL
+TC-075,Pioglitazone,Alzheimer's disease,OPPOSE,OPPOSE,Standard evaluation case for Pioglitazone in Alzheimer's disease.,None identified. Benchmark label matches medical consensus.,VALID LABEL
+TC-076,Statin,Sepsis,OPPOSE,UNCERTAIN,Standard evaluation case for Statin in Sepsis.,None identified. Benchmark label matches medical consensus.,VALID LABEL
+TC-077,Atorvastatin,Cardiovascular disease,SUPPORT,SUPPORT,Standard evaluation case for Atorvastatin in Cardiovascular disease.,None identified. Benchmark label matches medical consensus.,VALID LABEL
+TC-078,Simvastatin,Cardiovascular disease,SUPPORT,SUPPORT,Standard evaluation case for Simvastatin in Cardiovascular disease.,None identified. Benchmark label matches medical consensus.,VALID LABEL
+TC-079,Fenofibrate,Cardiovascular disease,OPPOSE,SUPPORT,"FDA approved for severe hypertriglyceridemia, which is a major CVD risk factor, though ACCORD-Lipid failed primary composite CVD outcome.",Surrogate metabolic biomarker (FDA approved for hypertriglyceridemia) vs clinical CVD outcome divergence.,POSSIBLE LABEL ISSUE
+TC-080,Ezetimibe,Cardiovascular disease,SUPPORT,SUPPORT,Standard evaluation case for Ezetimibe in Cardiovascular disease.,None identified. Benchmark label matches medical consensus.,VALID LABEL
+TC-081,Warfarin,Bleeding disorder,OPPOSE,UNCERTAIN,Standard evaluation case for Warfarin in Bleeding disorder.,None identified. Benchmark label matches medical consensus.,VALID LABEL
+TC-082,Aspirin,Hemorrhagic stroke,OPPOSE,SUPPORT,Standard evaluation case for Aspirin in Hemorrhagic stroke.,None identified. Benchmark label matches medical consensus.,VALID LABEL
+TC-083,NSAIDs,Peptic ulcer disease,OPPOSE,UNCERTAIN,"NSAIDs are the leading etiologic cause of peptic ulcer disease and gastric bleeding, strictly contraindicated.",Valid negative control / contraindication.,VALID LABEL
+TC-084,Methotrexate,Pregnancy-related condition,OPPOSE,UNCERTAIN,"Pregnancy Category X teratogen, but standard first-line medical treatment for ectopic pregnancy.","Medical reality: strictly contraindicated in intrauterine pregnancy, yet life-saving therapeutic in ectopic pregnancy.",STRONG LABEL CONCERN
+TC-085,Isotretinoin,Pregnancy,OPPOSE,UNCERTAIN,Standard evaluation case for Isotretinoin in Pregnancy.,None identified. Benchmark label matches medical consensus.,VALID LABEL
+TC-086,Clozapine,Schizophrenia,SUPPORT,SUPPORT,Standard evaluation case for Clozapine in Schizophrenia.,None identified. Benchmark label matches medical consensus.,VALID LABEL
+TC-087,Thalidomide,Multiple myeloma,SUPPORT,SUPPORT,"FDA approved for multiple myeloma (Celgene), but notorious teratogen and safety hazard requiring strict REMS program.",Valid approved indication with historical safety veto paradox.,VALID LABEL
+TC-088,Doxorubicin,Cardiomyopathy,OPPOSE,UNCERTAIN,Standard evaluation case for Doxorubicin in Cardiomyopathy.,None identified. Benchmark label matches medical consensus.,VALID LABEL
+TC-089,Digoxin,Atrial fibrillation,SUPPORT,UNCERTAIN,Standard evaluation case for Digoxin in Atrial fibrillation.,None identified. Benchmark label matches medical consensus.,VALID LABEL
+TC-090,Amiodarone,Atrial fibrillation,SUPPORT,UNCERTAIN,Standard evaluation case for Amiodarone in Atrial fibrillation.,None identified. Benchmark label matches medical consensus.,VALID LABEL
+TC-091,Budesonide/Formoterol,Asthma,SUPPORT,SUPPORT,Standard evaluation case for Budesonide/Formoterol in Asthma.,None identified. Benchmark label matches medical consensus.,VALID LABEL
+TC-092,Budesonide,COPD,SUPPORT,UNCERTAIN,Standard evaluation case for Budesonide in COPD.,None identified. Benchmark label matches medical consensus.,VALID LABEL
+TC-093,Metformin,Type 2 diabetes,SUPPORT,SUPPORT,Standard evaluation case for Metformin in Type 2 diabetes.,None identified. Benchmark label matches medical consensus.,VALID LABEL
+TC-094,Warfarin,Thrombosis,SUPPORT,SUPPORT,Standard evaluation case for Warfarin in Thrombosis.,None identified. Benchmark label matches medical consensus.,VALID LABEL
+TC-095,Heparin,Thrombosis,SUPPORT,SUPPORT,Standard evaluation case for Heparin in Thrombosis.,None identified. Benchmark label matches medical consensus.,VALID LABEL
+TC-096,Placebo,Disease treatment,OPPOSE,UNCERTAIN,"Methodological control, not a chemical entity or pharmacological agent.",Synthetic negative control rather than real pharmacological hypothesis.,VALID LABEL
+TC-097,Etanercept,Rheumatoid arthritis,SUPPORT,SUPPORT,Standard evaluation case for Etanercept in Rheumatoid arthritis.,None identified. Benchmark label matches medical consensus.,VALID LABEL
+TC-098,Fluticasone,Allergic rhinitis,SUPPORT,SUPPORT,Standard evaluation case for Fluticasone in Allergic rhinitis.,None identified. Benchmark label matches medical consensus.,VALID LABEL
+TC-099,Tamoxifen,Breast cancer,SUPPORT,SUPPORT,Standard evaluation case for Tamoxifen in Breast cancer.,None identified. Benchmark label matches medical consensus.,VALID LABEL
+TC-100,Trastuzumab,HER2-positive breast cancer,SUPPORT,SUPPORT,Standard evaluation case for Trastuzumab in HER2-positive breast cancer.,None identified. Benchmark label matches medical consensus.,VALID LABEL
