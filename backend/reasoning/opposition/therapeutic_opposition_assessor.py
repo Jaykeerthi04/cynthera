@@ -48,6 +48,10 @@ from backend.engineering.retrieval.disease_relation import (
     _SIBLING_EXCLUSIONS,
     _CANONICAL_SYNONYMS,
 )
+from backend.engineering.retrieval.trial_applicability import (
+    TrialApplicabilityStatus,
+    assess_trial_applicability,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -856,6 +860,26 @@ def trial_to_negative_claim(
         )
         return None
 
+    # APPLICABILITY GATE: mismatched biomarker/population/dose evidence may
+    # remain contextual in the retrieval package, but cannot create direct
+    # therapeutic opposition claims.
+    applicability = assess_trial_applicability(trial, disease_name)
+    if applicability.status not in (
+        TrialApplicabilityStatus.DIRECT,
+        TrialApplicabilityStatus.PARENT_OR_BROAD_CONTEXT,
+    ):
+        logger.info(
+            "trial_applicability_rejected",
+            extra={
+                "nct_id": trial.nct_id,
+                "drug": drug_name,
+                "disease": disease_name,
+                "status": applicability.status.value,
+                "reasons": applicability.reasons,
+            },
+        )
+        return None
+
     # ATTRIBUTION GATE:
     attr_result = evaluate_trial_attribution(trial, drug_name)
     if not attr_result.final_attribution_decision:
@@ -956,6 +980,9 @@ def trial_to_negative_claim(
     )
 
     trace_dict = attr_result.to_dict()
+    trace_dict["applicability_status"] = applicability.status.value
+    trace_dict["applicability_disease_relation"] = applicability.disease_relation.value
+    trace_dict["applicability_reasons"] = list(applicability.reasons)
     trace_dict["title"] = trial.title or ""
     trace_dict["why_stopped"] = trial.why_stopped or getattr(trial, "negative_efficacy_reason", None) or ""
     trace_dict["conditions"] = list(getattr(trial, "condition_names", []) or [])
