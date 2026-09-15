@@ -1,0 +1,21 @@
+CYNTHERA AUTOMATED TEST SUITE RESULTS
+======================================
+Execution Command: pytest tests/ -q --tb=no
+Platform: Windows-11 (Python 3.12.7)
+
+Summary:
+- Total Tests: 312
+- Passed: 234
+- Failed: 78
+- Skipped: 0
+- Errors: 0
+- Duration: 9.11s
+
+Failure Diagnostics:
+All 78 test failures originate from root domain model divergence:
+1. ClinicalTrial entity (tests/unit/test_clinicaltrials_safe_fixes.py, test_trial_attribution.py,
+   test_therapeutic_opposition.py, test_statistical_direction_semantics.py, test_semantic_opposition_qualification.py):
+   Missing 'why_stopped' field on root backend/core/domain/clinical_trial.py (74 failures).
+2. ApprovalSignal entity (tests/unit/test_approval_candidate_selection.py):
+   Missing 'source', 'global_approval_phase', 'requested_disease' kwargs on from_chembl_indication_match (4 failures).
+Both domain definitions are properly defined in mpp_final/cynthera/backend/core/domain/ but were not propagated to root backend/core/domain/.

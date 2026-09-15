@@ -200,7 +200,7 @@ class RawResponseCache:
         now = time.time()
         expires_at = now + ttl_seconds
         try:
-            response_json = json.dumps(value)
+            response_json = json.dumps(value, default=str)
         except (TypeError, ValueError) as exc:
             logger.warning(
                 "raw_cache_serialize_error",

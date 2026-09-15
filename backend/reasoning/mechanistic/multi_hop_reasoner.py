@@ -52,7 +52,7 @@ from backend.reasoning.directional.path_polarity import propagate_path_polarity
 logger = logging.getLogger(__name__)
 
 # Minimum confidence to include a path in the result set (calibrated for up to 5-hop decay)
-_MIN_CONFIDENCE: float = 0.01
+_MIN_CONFIDENCE: float = 0.0001
 
 _PATH_TYPE_BY_HOP_COUNT: dict[int, str] = {
     1: "DIRECT",

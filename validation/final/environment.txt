@@ -1,0 +1,25 @@
+CYNTHERA VALIDATION ENVIRONMENT
+=============================
+Git Commit: fcf283d8f58c6b48718ee747bbb7fcd61e10c728
+Branch: main
+OS / Platform: Windows-11-10.0.26100-SP0
+Python Version: 3.12.7 (tags/v3.12.7:0b05ead, Oct  1 2024, 03:06:41) [MSC v.1941 64 bit (AMD64)]
+Pydantic Version: 2.13.4
+FastAPI Version: 0.141.1
+HTTPX Version: 0.28.1
+Streamlit Version: 1.63.0
+Plotly Version: 7.0.0
+
+Working Tree Modifications (Uncommitted):
+- backend/core/domain/retrieval_package.py (domain fields: identifier_mappings, reactome_reaction_evidence, etc.)
+- backend/engineering/retrieval/pipeline.py (page size: 250 for opentargets association mappings)
+- data/cynthera.db, cynthera.db-shm, cynthera.db-wal (local SQLite caches)
+
+Evaluation Protocol:
+- Benchmark: 100-case stratified evaluation dataset (manifest_100_cases.json)
+- Evaluator: backend/evaluation/run_100_case_evaluation.py
+- Decision Pipeline: MasterOrchestrator production rule engine
+- Weights: ProductionWeightConfig
+- Retrieval Policy: RetrievalPolicy.STANDARD
+- Cache Mode: EvaluationCache enabled (use_cache=True)
+- LLM Provider: Groq (configured llama-3.1-8b-instant, keyword rule-based fallback active)

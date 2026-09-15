@@ -379,7 +379,7 @@ class TestFullReasoningPipeline:
 
         assert result is not None
         assert result.recommendation_status in RecommendationStatus
-        assert result.rule_set_version == "2.0"  # Phase 2 rule set
+        assert result.rule_set_version == "3.2"  # Current rule set version
 
     @pytest.mark.asyncio
     async def test_result_has_required_fields(self, orchestrator):
@@ -406,12 +406,18 @@ class TestFullReasoningPipeline:
         # Add safety-terminated trials
         failed_trials = []
         for i in range(3):
-            t = MagicMock()
-            t.nct_id = f"NCT_FAIL_{i}"
-            t.title = f"Trial {i} terminated for fatal adverse events black box"
-            t.description = "Life-threatening toxicity observed"
-            t.primary_outcome = ""
-            t.status = TrialOutcomeStatus.TERMINATED_SAFETY
+            t = ClinicalTrial(
+                nct_id=f"NCT9999000{i}",
+                title=f"Trial {i} terminated for fatal adverse events black box",
+                phase="Phase III",
+                status=TrialOutcomeStatus.TERMINATED_SAFETY,
+                primary_outcome="Life-threatening toxicity observed",
+                provenance=ProvenanceReference(
+                    source_name="clinicaltrials.gov",
+                    source_version="v1.0",
+                    record_id=f"NCT9999000{i}",
+                ),
+            )
             failed_trials.append(t)
 
         # Replace trials in package

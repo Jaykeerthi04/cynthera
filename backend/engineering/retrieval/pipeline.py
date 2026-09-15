@@ -2473,7 +2473,7 @@ class RetrievalPipeline:
                     return {}
 
             cache_key = RawResponseCache.make_key(
-                "opentargets_assoc", mondo_id, "associations", {"size": 50}
+                "opentargets_assoc", mondo_id, "associations", {"size": 250}
             )
 
             if not self._bypass_raw_cache:
@@ -2481,7 +2481,7 @@ class RetrievalPipeline:
                 if cached is not None and isinstance(cached, dict):
                     return cached
 
-            gene_scores, mappings = await connector.fetch_association_mappings(mondo_id, page_size=50)
+            gene_scores, mappings = await connector.fetch_association_mappings(mondo_id, page_size=250)
 
             result = {
                 "gene_scores": gene_scores,

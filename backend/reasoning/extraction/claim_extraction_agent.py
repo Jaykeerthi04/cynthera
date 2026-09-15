@@ -210,10 +210,9 @@ class ClaimExtractionAgent:
                 configured_model = os.environ.get("LLM_MODEL", self._model)
                 groq_model_cascade = [
                     configured_model,
-                    "llama-3.3-70b-versatile",
-                    "llama-3.1-8b-instant",
-                    "gemma2-9b-it",
-                    "mixtral-8x7b-32768",
+                    "qwen/qwen3.8-27b",
+                    "groq/compound-mini",
+                    "allam-2-7b",
                 ]
                 seen_m: set[str] = set()
                 groq_models_to_try: list[str] = []
@@ -385,10 +384,8 @@ class ClaimExtractionAgent:
         # Free/cheap models on OpenRouter that support instruction-following well
         models_to_try = [
             os.environ.get("OPENROUTER_MODEL", ""),
-            "meta-llama/llama-3.3-70b-instruct:free",
-            "meta-llama/llama-3.1-8b-instruct:free",
-            "google/gemma-3-12b-it:free",
-            "mistralai/mistral-7b-instruct:free",
+            "nvidia/nemotron-3.5-lightning:free",
+            "liquid/lfm-2.5-2.6b:free",
         ]
         models_to_try = [m for m in models_to_try if m]  # remove empty
 
