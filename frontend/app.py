@@ -18,6 +18,7 @@ load_dotenv()
 
 import streamlit as st
 from backend.core.value_objects.source_url_builder import SourceURLBuilder
+from frontend.playground_view import render_playground_view
 
 st.set_page_config(
     page_title="CYNTHERA — Drug Repurposing AI",
@@ -347,6 +348,8 @@ if "history" not in st.session_state:
     st.session_state.history = []
 if "current_tab" not in st.session_state:
     st.session_state.current_tab = "evaluate"
+if "selected_nav" not in st.session_state:
+    st.session_state.selected_nav = "🔬 Evaluate"
 
 # ─────────────────────────────────────────────
 # Sidebar Navigation
@@ -354,10 +357,16 @@ if "current_tab" not in st.session_state:
 with st.sidebar:
     st.markdown("### 🧬 CYNTHERA")
     st.markdown("---")
+    nav_options = ["🔬 Evaluate", "📊 Results", "🔍 Playground", "📋 Audit Report", "🕐 History", "⚡ Batch"]
+    nav_idx = 0
+    if st.session_state.selected_nav in nav_options:
+        nav_idx = nav_options.index(st.session_state.selected_nav)
+
     page = st.radio(
         "Navigation",
-        ["🔬 Evaluate", "📊 Results", "📋 Audit Report", "🕐 History", "⚡ Batch"],
-        index=0,
+        nav_options,
+        index=nav_idx,
+        key="selected_nav",
         label_visibility="collapsed",
     )
     st.markdown("---")
@@ -888,7 +897,25 @@ elif page == "📊 Results":
                 if not negative_factors:
                     st.caption("_None identified_")
 
+        # ── CTA: Interactive Playground Exploration ───────────────────────
+        st.markdown("### 🔍 Interactive Hypothesis Exploration")
+        st.markdown(
+            "Dive into the evidence graph, inspect individual mechanistic hops, trace claims to primary sources, "
+            "and run honest what-if scenarios in the CYNTHERA Playground."
+        )
+        if st.button("🔍 Explore this hypothesis in Playground →", type="primary", use_container_width=True):
+            st.session_state.selected_nav = "🔍 Playground"
+            st.session_state.playground_hyp_id = str(result.hypothesis_id)
+            st.rerun()
+
         st.markdown("---")
+
+
+# ─────────────────────────────────────────────
+# Page: Playground
+# ─────────────────────────────────────────────
+elif page == "🔍 Playground":
+    render_playground_view()
 
 
 # ─────────────────────────────────────────────

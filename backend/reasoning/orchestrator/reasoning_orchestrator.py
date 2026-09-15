@@ -306,7 +306,7 @@ class ReasoningOrchestrator:
         try:
             _gating_resolver: _BIR | None = None
             if package.targets:
-                graph = _EGB().build(package)
+                _, _gating_resolver = _EGB().build(package)
         except Exception:
             _gating_resolver = None
         conflict_report = self._conflict_resolver.resolve(all_claims, resolver=_gating_resolver)

@@ -30,7 +30,6 @@ from backend.playground.models import (
     ScenarioModifications,
     ScenarioResult,
     ResearcherNote,
-    InvestigationState,
 )
 
 logger = logging.getLogger(__name__)
@@ -231,45 +230,3 @@ async def get_notes(hypothesis_id: str) -> list[dict[str, Any]]:
         }
         for n in notes
     ]
-
-
-@playground_router.get("/{hypothesis_id}/investigation")
-async def get_investigation(hypothesis_id: str) -> dict[str, Any]:
-    """Load the saved investigation state for a hypothesis.
-
-    Args:
-        hypothesis_id: UUID of the hypothesis.
-
-    Returns:
-        InvestigationState as JSON dict, or 404 if not found.
-    """
-    state = _investigation_store.get_investigation(hypothesis_id)
-    if state is None:
-        raise HTTPException(
-            status_code=404,
-            detail=f"No saved investigation for hypothesis '{hypothesis_id}'.",
-        )
-    return state.model_dump()
-
-
-@playground_router.post("/{hypothesis_id}/investigation")
-async def save_investigation(
-    hypothesis_id: str,
-    state: InvestigationState,
-) -> dict[str, str]:
-    """Save the current investigation state.
-
-    Persists scenario changes, notes, and UI state.
-    Does not overwrite canonical evidence.
-
-    Args:
-        hypothesis_id: UUID of the hypothesis.
-        state: InvestigationState to persist.
-
-    Returns:
-        Dict with the investigation ID.
-    """
-    # Ensure hypothesis_id matches
-    state_copy = state.model_copy(update={"hypothesis_id": hypothesis_id})
-    inv_id = _investigation_store.save_investigation(state_copy)
-    return {"investigation_id": inv_id, "status": "saved"}

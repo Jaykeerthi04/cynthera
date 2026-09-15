@@ -34,3 +34,27 @@ class PredicateType(str, Enum):
 
     NO_EFFECT = "NO_EFFECT"
     """Explicitly shown to have no directional, regulatory, or binding impact."""
+
+    # ── Therapeutic opposition predicates (Phase 5.16) ──────────────────────────
+    # These represent EXPLICIT negative therapeutic evidence — failure, futility,
+    # or harm in a disease-specific clinical/experimental context.
+    # They are DISTINCT from mechanistic predicates above and should only be
+    # extracted when the text unambiguously describes a disease-specific outcome.
+
+    FAILED_TO_IMPROVE = "FAILED_TO_IMPROVE"
+    """Drug failed to improve the disease outcome in a clinical study."""
+
+    NO_SIGNIFICANT_BENEFIT = "NO_SIGNIFICANT_BENEFIT"
+    """No statistically significant benefit demonstrated for this disease."""
+
+    TERMINATED_FOR_FUTILITY = "TERMINATED_FOR_FUTILITY"
+    """Trial terminated for futility — pre-specified futility boundary crossed."""
+
+    TERMINATED_FOR_SAFETY = "TERMINATED_FOR_SAFETY"
+    """Trial terminated due to safety concerns in this disease context."""
+
+    WORSENED_OUTCOME = "WORSENED_OUTCOME"
+    """Drug was associated with worsening of disease outcome in this indication."""
+
+    CONTRAINDICATED = "CONTRAINDICATED"
+    """Drug is explicitly contraindicated for this disease."""

@@ -93,6 +93,10 @@ class PlaygroundContradiction(BaseModel):
     contradiction_score: float = Field(default=0.5, ge=0.0, le=1.0)
     shared_subject: str = Field(default="")
     explanation: str = Field(default="")
+    claim_a_summary: str = Field(default="")
+    claim_b_summary: str = Field(default="")
+    claim_a_evidence_ids: list[str] = Field(default_factory=list)
+    claim_b_evidence_ids: list[str] = Field(default_factory=list)
 
 
 # ─────────────────────────────────────────────

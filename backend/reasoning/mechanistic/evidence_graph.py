@@ -39,7 +39,24 @@ from dataclasses import dataclass, field
 from typing import Any, Iterator
 
 from backend.core.domain.retrieval_package import RetrievalPackage
+from backend.core.domain.disease_gene_evidence import DiseaseGeneEvidence, DiseaseGeneScope
 from backend.core.value_objects.source_url_builder import EvidenceLink, SourceURLBuilder
+
+# Phase 4B: Directional evidence infrastructure
+from backend.core.enums.molecular_polarity import MolecularPolarity
+from backend.core.enums.causal_grounding import CausalGrounding
+from backend.reasoning.directional.chembl_polarity import (
+    chembl_action_to_polarity,
+    chembl_action_to_grounding,
+)
+from backend.reasoning.directional.reactome_polarity import (
+    reactome_role_to_polarity,
+    reactome_role_to_grounding,
+)
+from backend.reasoning.mechanistic.reaction_aggregator import (
+    aggregate_reaction_evidence,
+    AggregatedReactionEvidence,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -48,20 +65,34 @@ logger = logging.getLogger(__name__)
 # Track in MECHANISTIC_BENCHMARK_RESULTS.md once the benchmark lands.
 # ─────────────────────────────────────────────
 _HOP_DECAY: float = 0.85               # per-additional-hop length penalty
-_MIN_PATH_CONFIDENCE: float = 0.05
+_MIN_PATH_CONFIDENCE: float = 0.01
 _UNREVIEWED_PENALTY: float = 0.3       # TrEMBL (unreviewed) protein multiplier
 _UNVALIDATED_GENE_DEFAULT: float = 0.3 # fallback strength when a target's gene
                                         # has no Open Targets/DisGeNET score at all
 _MAX_TARGETS: int = 8
 _MAX_PATHWAYS_PER_TARGET: int = 6
-_MAX_HOPS: int = 4
+_MAX_HOPS: int = 5
 
 # Node type constants
 _NODE_DRUG = "DRUG"
 _NODE_TARGET = "TARGET"
+_NODE_REACTION = "REACTION"
 _NODE_PATHWAY = "PATHWAY"
 _NODE_GENE = "GENE"
 _NODE_DISEASE = "DISEASE"
+
+# Target role to edge predicate mapping
+_ROLE_TO_PREDICATE: dict[str, str] = {
+    "CATALYST": "CATALYZES",
+    "INPUT": "INPUT_TO",
+    "OUTPUT": "OUTPUT_OF",
+    "POSITIVE_REGULATOR": "POSITIVE_REGULATES",
+    "NEGATIVE_REGULATOR": "NEGATIVE_REGULATES",
+    "REQUIREMENT": "REQUIREMENT_FOR",
+    "COMPLEX_COMPONENT": "COMPLEX_COMPONENT_OF",
+    "ENTITY_SET_MEMBER": "ENTITY_SET_MEMBER_OF",
+    "PARTICIPANT": "PARTICIPATES_IN_REACTION",
+}
 
 _NON_HUMAN_KEYWORDS = (
     "bacteria", "bacterial", "virus", "viral", "coli", "yeast",
@@ -133,21 +164,74 @@ def compute_target_confidence(target: Any, evidence_records: list) -> float:
     return round(0.6 * affinity_component + 0.4 * evidence_component, 4)
 
 
-def build_validated_gene_scores(package: RetrievalPackage) -> dict[str, float]:
-    """Return gene symbol → real association score in [0, 1].
+from backend.reasoning.normalization.biological_identifier_resolver import (
+    BiologicalIdentifierResolver,
+)
 
-    Primary source: Open Targets scores from ``package.validated_disease_genes``.
-    Fallback: DisGeNET evidence records (membership-only, uses conservative default).
 
-    Fixes audit 1.3: returns actual float magnitudes, not binary membership.
+def build_validated_gene_scores(
+    package: RetrievalPackage,
+    resolver: BiologicalIdentifierResolver | None = None,
+) -> dict[str, float]:
+    """Return canonical gene symbol → real association score in [0, 1].
+
+    Phase 5.10 Feature:
+    Consumes tiered DiseaseGeneEvidence when available, filtering to tiers that are eligible
+    to bridge the mechanistic graph (EXACT, EQUIVALENT, CHILD).
+    PARENT tier evidence is strictly excluded from forming graph bridge scores.
     """
+    if resolver is None:
+        resolver = BiologicalIdentifierResolver(
+            proteins=package.proteins,
+            genes=package.genes,
+            mappings=getattr(package, "identifier_mappings", []),
+        )
+
     scores: dict[str, float] = {}
 
+    # 1. Tiered DiseaseGeneEvidence (Phase 5.10 primary)
+    d_evs = getattr(package, "disease_gene_evidence", None) or []
+    if d_evs:
+        for ev in d_evs:
+            if not ev.can_bridge_mechanistic_graph():
+                # Strictly exclude PARENT tier from graph bridge
+                continue
+            if ev.evidence_score is not None and ev.evidence_score > 0:
+                resolved = resolver.resolve(
+                    ev.gene_symbol,
+                    source="disease_gene_evidence",
+                    confidence=float(ev.evidence_score),
+                )
+                sym = resolved.canonical_symbol.upper() if resolved.canonical_symbol else ev.gene_symbol.upper()
+                score_val = round(min(1.0, max(0.0, float(ev.evidence_score))), 4)
+                scores[sym] = max(scores.get(sym, 0.0), score_val)
+        if scores:
+            return scores
+
+    # 2. Open Targets scores from package.validated_disease_genes (backward compatibility)
     val_genes = getattr(package, "validated_disease_genes", None) or {}
     if val_genes:
-        for gene, score in val_genes.items():
-            if isinstance(score, (int, float)) and score > 0:
-                scores[gene.upper()] = round(min(1.0, max(0.0, float(score))), 4)
+        for raw_identifier, score in val_genes.items():
+            if not isinstance(score, (int, float)) or score <= 0:
+                continue
+            resolved = resolver.resolve(
+                str(raw_identifier),
+                source="validated_disease_genes",
+                confidence=float(score),
+            )
+            if resolved.canonical_symbol:
+                sym = resolved.canonical_symbol.upper()
+                score_val = round(min(1.0, max(0.0, float(score))), 4)
+                scores[sym] = max(scores.get(sym, 0.0), score_val)
+            else:
+                logger.debug(
+                    "biological_identifier_unresolved",
+                    extra={
+                        "raw_identifier": raw_identifier,
+                        "identifier_type": resolved.identifier_type.value,
+                        "source": resolved.source,
+                    },
+                )
         return scores
 
     # Legacy fallback: DisGeNET evidence records, no real float score available
@@ -164,34 +248,23 @@ def build_validated_gene_scores(package: RetrievalPackage) -> dict[str, float]:
                     if len(parts) > 1:
                         gene = parts[1].split("—")[0].strip()
                         if gene:
-                            scores.setdefault(gene.upper(), _UNVALIDATED_GENE_DEFAULT)
+                            resolved = resolver.resolve(gene, source="DisGeNET")
+                            if resolved.canonical_symbol:
+                                scores.setdefault(resolved.canonical_symbol.upper(), _UNVALIDATED_GENE_DEFAULT)
     return scores
 
 
-def build_uniprot_symbol_map(proteins: list) -> dict[str, str]:
-    """Return UniProt accession (cleaned) → gene symbol from retrieved Protein records.
-
-    This is the missing piece behind audit 1.4: pathway participants arrive as
-    UniProt accessions, while disease genes / drug targets are gene symbols.
-    Every downstream comparison must go through this map.
-    """
-    mapping: dict[str, str] = {}
-    for p in proteins:
-        acc = getattr(p, "uniprot_accession", None)
-        sym = getattr(p, "gene_symbol", None)
-        if acc and sym:
-            mapping[clean_uniprot(acc)] = sym.upper()
-    return mapping
-
-
-def pathway_gene_symbols(pathway: Any, uniprot_to_symbol: dict[str, str]) -> set[str]:
-    """Return set of gene symbols for pathway participants using the UniProt→symbol map."""
+def pathway_gene_symbols(
+    pathway: Any,
+    resolver: BiologicalIdentifierResolver,
+) -> set[str]:
+    """Return set of canonical gene symbols for pathway participants using the resolver."""
     participant_ids = getattr(pathway, "participant_uniprot_ids", None) or []
     out: set[str] = set()
     for pid in participant_ids:
-        sym = uniprot_to_symbol.get(clean_uniprot(pid))
-        if sym:
-            out.add(sym)
+        resolved = resolver.resolve(pid, source="Reactome")
+        if resolved.canonical_symbol:
+            out.add(resolved.canonical_symbol.upper())
     return out
 
 
@@ -262,6 +335,14 @@ class GraphEdge:
     provenance: str = ""
     links: list[EvidenceLink] = field(default_factory=list)
     data_quality: str = "EVIDENCE_BACKED"  # "EVIDENCE_BACKED" | "STRUCTURE_ONLY" | "UNVALIDATED"
+    direction: str = "UNKNOWN"             # "POSITIVE" | "NEGATIVE" | "UNKNOWN" (legacy string, kept for compat)
+    relationship_type: str = ""           # Semantic type e.g. PARTICIPATES_IN, INHIBITS, ASSOCIATED_WITH
+    source_id_ref: str = ""               # Database-specific identifier
+    evidence_type: str = ""               # IN_VITRO | DATABASE | PATHWAY_MEMBERSHIP | etc.
+    context: dict = field(default_factory=dict)
+    # Phase 4B: Typed directional fields — separate from legacy string direction
+    polarity: MolecularPolarity = field(default=MolecularPolarity.UNKNOWN)
+    causal_grounding: CausalGrounding = field(default=CausalGrounding.NONE)
 
 
 class EvidenceGraph:
@@ -332,14 +413,16 @@ class EvidenceGraphBuilder:
         graph = builder.build(package)
     """
 
-    def build(self, package: RetrievalPackage) -> EvidenceGraph:
+    def build(self, package: RetrievalPackage) -> tuple[EvidenceGraph, BiologicalIdentifierResolver]:
         """Build and return the EvidenceGraph for the given package.
 
         Args:
             package: Sealed RetrievalPackage from the retrieval pipeline.
 
         Returns:
-            EvidenceGraph with nodes and edges populated from retrieved data.
+            Tuple of (EvidenceGraph, BiologicalIdentifierResolver).
+            The resolver is populated from retrieved proteins/genes/mappings and
+            can be passed to AdvancedConflictResolver for canonical entity gating.
         """
         graph = EvidenceGraph()
 
@@ -353,15 +436,33 @@ class EvidenceGraphBuilder:
 
         if not targets:
             # No targets → empty graph → PathFinder finds nothing → MS=0 NONE
-            return graph
+            # Still return (graph, resolver) tuple for consistent API.
+            empty_resolver = BiologicalIdentifierResolver(
+                proteins=package.proteins,
+                genes=package.genes,
+                mappings=getattr(package, "identifier_mappings", []),
+            )
+            return graph, empty_resolver
 
-        # ── Pre-build lookup tables ───────────────────────────────────────
-        # Fix 1.4: map UniProt accessions to gene symbols ONCE before any
-        # pathway-overlap or membership comparison.
-        uniprot_to_symbol = build_uniprot_symbol_map(proteins)
+        # ── Pre-build lookup tables & resolver ────────────────────────────
+        resolver = BiologicalIdentifierResolver(
+            proteins=package.proteins,
+            genes=package.genes,
+            mappings=getattr(package, "identifier_mappings", []),
+        )
 
-        # Fix 1.3: real float scores, not binary membership
-        gene_scores = build_validated_gene_scores(package)
+        # Canonical float scores for disease-associated genes
+        gene_scores = build_validated_gene_scores(package, resolver=resolver)
+
+        # Lookup map for DiseaseGeneEvidence provenance
+        gene_evidence_map: dict[str, DiseaseGeneEvidence] = {}
+        for dev in (getattr(package, "disease_gene_evidence", None) or []):
+            if dev.can_bridge_mechanistic_graph() and dev.gene_symbol:
+                sym_u = dev.gene_symbol.upper()
+                if sym_u not in gene_evidence_map:
+                    gene_evidence_map[sym_u] = dev
+                elif dev.scope in (DiseaseGeneScope.EXACT, "EXACT"):
+                    gene_evidence_map[sym_u] = dev
 
         protein_by_uniprot: dict[str, Any] = {}
         for p in proteins:
@@ -377,13 +478,11 @@ class EvidenceGraphBuilder:
         }
         disease_gene_syms: set[str] = set(gene_scores.keys())
 
-        # ── Rank pathways by corrected gene-symbol relevance ──────────────
-        # Fix 1.4: both sides now use gene symbols, so the sort actually
-        # discriminates between pathways.
+        # ── Rank pathways by corrected canonical gene-symbol relevance ───
         ranked_pathways = sorted(
             package.pathways,
             key=lambda pw: pathway_relevance_score(
-                pathway_gene_symbols(pw, uniprot_to_symbol),
+                pathway_gene_symbols(pw, resolver),
                 disease_gene_syms,
                 drug_target_syms,
             ),
@@ -391,6 +490,18 @@ class EvidenceGraphBuilder:
         )
 
         genes_linked_to_disease: set[str] = set()  # track to avoid duplicate edges
+
+        # Phase 5.4: Pre-aggregate Reactome reaction evidence by canonical biological reaction entity
+        raw_rxn_ev = getattr(package, "reactome_reaction_evidence", []) or []
+        aggregated_rxn_ev = aggregate_reaction_evidence(raw_rxn_ev)
+        rxn_ev_by_target: dict[str, list[AggregatedReactionEvidence]] = defaultdict(list)
+        for arev in aggregated_rxn_ev:
+            rxn_ev_by_target[arev.target_canonical_id.upper()].append(arev)
+            if arev.target_original_id and arev.target_original_id.upper() != arev.target_canonical_id.upper():
+                rxn_ev_by_target[arev.target_original_id.upper()].append(arev)
+            clean_orig = clean_uniprot(arev.target_original_id)
+            if clean_orig and clean_orig.upper() not in (arev.target_canonical_id.upper(), arev.target_original_id.upper()):
+                rxn_ev_by_target[clean_orig.upper()].append(arev)
 
         for target in targets:
             uniprot_id = getattr(target, "protein_uniprot", None)
@@ -400,12 +511,11 @@ class EvidenceGraphBuilder:
                 or protein_by_uniprot.get(norm_uniprot)
             )
 
-            if not is_human_protein(protein):
-                logger.info(
-                    "evidence_graph_target_skipped_non_human",
-                    extra={"uniprot_id": uniprot_id},
-                )
-                continue
+            # Non-human targets (e.g. viral neuraminidase for Oseltamivir -> Influenza)
+            # are valid primary drug targets and must not be dropped from the evidence graph.
+            # We record organism in metadata rather than skipping.
+            is_human = is_human_protein(protein)
+
 
             gene_symbol = getattr(protein, "gene_symbol", None) if protein else None
             target_label = (
@@ -439,6 +549,17 @@ class EvidenceGraphBuilder:
                 if u:
                     dt_links.append(EvidenceLink("UniProt", "Open UniProt", u, uniprot_id, "database"))
 
+            direction = "UNKNOWN"
+            pred_u = predicate.upper()
+            if pred_u in ("INHIBITOR", "INHIBITS", "ANTAGONIST", "BLOCKER", "NEGATIVE_ALLOSTERIC_MODULATOR"):
+                direction = "NEGATIVE"
+            elif pred_u in ("ACTIVATOR", "ACTIVATES", "AGONIST", "OPENER", "POSITIVE_ALLOSTERIC_MODULATOR", "PARTIAL_AGONIST"):
+                direction = "POSITIVE"
+
+            # Phase 4B: typed polarity and causal grounding derived from ChEMBL action_type
+            dt_polarity = chembl_action_to_polarity(mechanism)
+            dt_grounding = chembl_action_to_grounding(mechanism)
+
             graph.add_edge(GraphEdge(
                 source_id=drug_id,
                 target_id=target_id,
@@ -448,6 +569,11 @@ class EvidenceGraphBuilder:
                 provenance=f"binding affinity + evidence volume for {target_label}",
                 links=dt_links,
                 data_quality="EVIDENCE_BACKED",
+                direction=direction,
+                relationship_type=predicate,
+                evidence_type="IN_VITRO",
+                polarity=dt_polarity,
+                causal_grounding=dt_grounding,
             ))
 
             # ── Target → Gene → Disease ───────────────────────────────────
@@ -478,6 +604,9 @@ class EvidenceGraphBuilder:
                     ),
                     links=tg_links,
                     data_quality="EVIDENCE_BACKED",
+                    direction="UNKNOWN",
+                    relationship_type="ENCODED_BY_DISEASE_ASSOCIATED_GENE",
+                    evidence_type="DATABASE_ASSOCIATION",
                 ))
 
                 if gene_id not in genes_linked_to_disease:
@@ -489,15 +618,27 @@ class EvidenceGraphBuilder:
                     if u_dg:
                         gd_links.append(EvidenceLink("DisGeNET", "Open DisGeNET", u_dg, gene_sym_u, "database"))
 
+                    d_ev = gene_evidence_map.get(gene_sym_u) if gene_sym_u else None
+                    d_scope = d_ev.scope.value if (d_ev and hasattr(d_ev.scope, "value")) else (str(d_ev.scope) if d_ev and d_ev.scope else "EXACT")
+                    d_prov = d_ev.provenance if d_ev and d_ev.provenance else f"gene-disease association score {gene_score:.2f}"
+                    d_dis_id = d_ev.disease_id if d_ev else (package.disease.mesh_id or package.disease.name)
+
                     graph.add_edge(GraphEdge(
                         source_id=gene_id,
                         target_id=disease_id,
                         predicate="ASSOCIATED_WITH",
                         evidence_strength=gene_score,
                         source="Open Targets / DisGeNET",
-                        provenance=f"gene-disease association score {gene_score:.2f}",
+                        provenance=d_prov,
                         links=gd_links,
                         data_quality="EVIDENCE_BACKED",
+                        direction="UNKNOWN",
+                        relationship_type="ASSOCIATED_WITH",
+                        evidence_type="DISEASE_ASSOCIATION",
+                        context={
+                            "scope": d_scope,
+                            "disease_id": d_dis_id,
+                        },
                     ))
                     genes_linked_to_disease.add(gene_id)
             else:
@@ -513,12 +654,22 @@ class EvidenceGraphBuilder:
                 )
 
             # ── Target → Pathway → Disease-associated gene(s) ────────────
-            # Fix 1.1: real membership check (fail-closed, P8 preserved)
-            # Fix 1.4: relevance computed on gene symbols on both sides
-            for pathway in ranked_pathways[:_MAX_PATHWAYS_PER_TARGET]:
-                if not target_in_pathway(norm_uniprot, pathway):
-                    continue
+            # Filter pathways to those containing this target
+            target_pathways = [
+                pw for pw in ranked_pathways
+                if target_in_pathway(norm_uniprot, pw)
+            ]
+            # Prioritize pathways with confirmed disease-gene overlap, up to _MAX_PATHWAYS_PER_TARGET
+            target_pathways_sorted = sorted(
+                target_pathways,
+                key=lambda pw: (
+                    len(pathway_gene_symbols(pw, resolver) & disease_gene_syms) > 0,
+                    pathway_relevance_score(pathway_gene_symbols(pw, resolver), disease_gene_syms, drug_target_syms),
+                ),
+                reverse=True,
+            )
 
+            for pathway in target_pathways_sorted[:_MAX_PATHWAYS_PER_TARGET]:
                 pathway_id = f"{_NODE_PATHWAY}:{pathway.reactome_id}"
                 graph.add_node(GraphNode(
                     pathway_id,
@@ -526,31 +677,102 @@ class EvidenceGraphBuilder:
                     f"{pathway.name} ({pathway.reactome_id})",
                 ))
 
-                pw_gene_syms = pathway_gene_symbols(pathway, uniprot_to_symbol)
+                pw_gene_syms = pathway_gene_symbols(pathway, resolver)
                 relevance = pathway_relevance_score(
                     pw_gene_syms, disease_gene_syms, drug_target_syms
                 )
 
-                # Fix 2: Replace the max(0.5, relevance) floor.
-                # Confirmed membership is a structural fact (baseline 0.30).
-                # Relevance to the disease adds up to 0.50 more.
-                # A pathway with 0 disease-gene overlap scores 0.30, not 0.50.
-                # Pathways with relevance == 0 AND no disease-gene overlap are
-                # skipped entirely — they cannot contribute to a valid mechanism.
-                if relevance == 0 and not (pw_gene_syms & disease_gene_syms):
-                    logger.debug(
-                        "evidence_graph_pathway_skipped_zero_relevance",
-                        extra={"pathway_id": pathway.reactome_id, "name": pathway.name},
-                    )
-                    continue
-
                 participation_strength = round(0.30 + 0.50 * relevance, 4)
+
 
                 pw_links: list[EvidenceLink] = []
                 u_pw = SourceURLBuilder.reactome_url(pathway.reactome_id)
                 if u_pw:
                     pw_links.append(EvidenceLink("Reactome", "Open Reactome Pathway", u_pw, pathway.reactome_id, "database"))
 
+                # ── Reaction-level decomposition (Phase 3) ─────────────────
+                # Look up target-specific reactions matching this pathway
+                target_evs: list[AggregatedReactionEvidence] = []
+                if norm_uniprot in rxn_ev_by_target:
+                    target_evs.extend(rxn_ev_by_target[norm_uniprot])
+                if gene_sym_u and gene_sym_u in rxn_ev_by_target:
+                    for e in rxn_ev_by_target[gene_sym_u]:
+                        if e not in target_evs:
+                            target_evs.append(e)
+
+                for rev in target_evs:
+                    if rev.pathway_id == pathway.reactome_id:
+                        rxn_id = f"{_NODE_REACTION}:{rev.reaction_id}"
+                        graph.add_node(GraphNode(
+                            rxn_id,
+                            _NODE_REACTION,
+                            f"{rev.reaction_name} ({rev.reaction_id})",
+                            meta={
+                                "reaction_id": rev.reaction_id,
+                                "schema_class": rev.schema_class,
+                                "species": rev.species,
+                                "compartment": rev.compartment,
+                                "disease_context": rev.disease_context,
+                                "roles": rev.roles,
+                                "evidence_count": rev.evidence_count,
+                            },
+                        ))
+
+                        rxn_links: list[EvidenceLink] = []
+                        u_rxn = SourceURLBuilder.reactome_url(rev.reaction_id)
+                        if u_rxn:
+                            rxn_links.append(EvidenceLink("Reactome", "Open Reactome Reaction", u_rxn, rev.reaction_id, "database"))
+
+                        # Add a distinct edge for each preserved biological role
+                        for role in rev.roles:
+                            role_pred = _ROLE_TO_PREDICATE.get(role.upper(), role.upper())
+                            rxn_polarity = reactome_role_to_polarity(role)
+                            rxn_grounding = reactome_role_to_grounding(role)
+
+                            graph.add_edge(GraphEdge(
+                                source_id=target_id,
+                                target_id=rxn_id,
+                                predicate=role_pred,
+                                evidence_strength=participation_strength,
+                                source="Reactome",
+                                provenance=f"target-specific reaction role: {role} in {rev.reaction_name} (aggregated {rev.evidence_count} record(s))",
+                                links=rxn_links,
+                                data_quality="EVIDENCE_BACKED",
+                                direction="POSITIVE" if rxn_polarity == MolecularPolarity.POSITIVE else ("NEGATIVE" if rxn_polarity == MolecularPolarity.NEGATIVE else "UNKNOWN"),
+                                relationship_type=role_pred,
+                                source_id_ref=rev.reaction_id,
+                                evidence_type="CURATED_REACTION",
+                                context={
+                                    "target_role": role,
+                                    "roles": rev.roles,
+                                    "schema_class": rev.schema_class,
+                                    "species": rev.species,
+                                    "compartment": rev.compartment,
+                                    "disease_context": rev.disease_context,
+                                    "evidence_count": rev.evidence_count,
+                                },
+                                polarity=rxn_polarity,
+                                causal_grounding=rxn_grounding,
+                            ))
+
+                        # Reaction -> Pathway (exactly one edge)
+                        graph.add_edge(GraphEdge(
+                            source_id=rxn_id,
+                            target_id=pathway_id,
+                            predicate="PART_OF",
+                            evidence_strength=1.0,
+                            source="Reactome",
+                            provenance=f"reaction {rev.reaction_id} is part of pathway {pathway.name}",
+                            links=pw_links,
+                            data_quality="EVIDENCE_BACKED",
+                            direction="UNKNOWN",
+                            relationship_type="PART_OF",
+                            source_id_ref=pathway.reactome_id,
+                            evidence_type="CURATED_REACTION",
+                            context={"evidence_count": rev.evidence_count},
+                        ))
+
+                # Retain baseline broad pathway participation edge
                 graph.add_edge(GraphEdge(
                     source_id=target_id,
                     target_id=pathway_id,
@@ -564,6 +786,9 @@ class EvidenceGraphBuilder:
                     ),
                     links=pw_links,
                     data_quality="EVIDENCE_BACKED",
+                    direction="UNKNOWN",
+                    relationship_type="PARTICIPATES_IN",
+                    evidence_type="PATHWAY_MEMBERSHIP",
                 ))
 
                 # Pathway → disease-associated gene(s) that are actually in it
@@ -591,6 +816,9 @@ class EvidenceGraphBuilder:
                         ),
                         links=pwg_links,
                         data_quality="EVIDENCE_BACKED",
+                        direction="UNKNOWN",
+                        relationship_type="CONTAINS_ASSOCIATED_GENE",
+                        evidence_type="PATHWAY_MEMBERSHIP",
                     ))
 
                     if gene_id not in genes_linked_to_disease:
@@ -602,15 +830,27 @@ class EvidenceGraphBuilder:
                         if u_dg2:
                             gd_links2.append(EvidenceLink("DisGeNET", "Open DisGeNET", u_dg2, sym, "database"))
 
+                        d_ev2 = gene_evidence_map.get(sym)
+                        d_scope2 = d_ev2.scope.value if (d_ev2 and hasattr(d_ev2.scope, "value")) else (str(d_ev2.scope) if d_ev2 and d_ev2.scope else "EXACT")
+                        d_prov2 = d_ev2.provenance if d_ev2 and d_ev2.provenance else f"gene-disease association score {gene_score:.2f}"
+                        d_dis_id2 = d_ev2.disease_id if d_ev2 else (package.disease.mesh_id or package.disease.name)
+
                         graph.add_edge(GraphEdge(
                             source_id=gene_id,
                             target_id=disease_id,
                             predicate="ASSOCIATED_WITH",
                             evidence_strength=gene_score,
                             source="Open Targets / DisGeNET",
-                            provenance=f"gene-disease association score {gene_score:.2f}",
+                            provenance=d_prov2,
                             links=gd_links2,
                             data_quality="EVIDENCE_BACKED",
+                            direction="UNKNOWN",
+                            relationship_type="ASSOCIATED_WITH",
+                            evidence_type="DISEASE_ASSOCIATION",
+                            context={
+                                "scope": d_scope2,
+                                "disease_id": d_dis_id2,
+                            },
                         ))
                         genes_linked_to_disease.add(gene_id)
 
@@ -622,4 +862,6 @@ class EvidenceGraphBuilder:
                 "edges": len(graph.edges),
             },
         )
-        return graph
+        # Phase 4B: return (graph, resolver) so callers can pass resolver to
+        # AdvancedConflictResolver for canonical entity gating.
+        return graph, resolver

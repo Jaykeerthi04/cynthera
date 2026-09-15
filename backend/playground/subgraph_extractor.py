@@ -22,7 +22,6 @@ from backend.playground.models import (
     PlaygroundGraphData,
     PlaygroundNode,
     PlaygroundEdge,
-    PlaygroundClaim,
     PlaygroundEvidence,
     PlaygroundClinicalTrial,
     PlaygroundContradiction,
@@ -260,7 +259,8 @@ def extract_relevant_subgraph(
     """
     # ── Step 1: Rebuild evidence graph from stored package ──────────────
     builder = EvidenceGraphBuilder()
-    evidence_graph = builder.build(package)
+    built = builder.build(package)
+    evidence_graph = built[0] if isinstance(built, tuple) else built
 
     # ── Step 2: Convert graph nodes ────────────────────────────────────
     nodes: list[PlaygroundNode] = []
@@ -322,10 +322,67 @@ def extract_relevant_subgraph(
             links=node_links,
         ))
 
-    # ── Step 3: Convert graph edges ────────────────────────────────────
+    # ── Step 3: Convert graph edges with "Why is this relationship here?" data ──
+    drug_nid = f"DRUG:{package.drug.name}"
+    disease_nid = f"DISEASE:{package.disease.name}"
+    all_simple_paths = list(evidence_graph.find_simple_paths(drug_nid, disease_nid))
+
+    # Index candidate mechanism hops by (source, target)
+    cms = getattr(result.mechanistic_assessment, "candidate_mechanisms", []) or []
+    hop_lookup: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    for cm in cms:
+        cm_hops = cm.get("hops", []) if isinstance(cm, dict) else getattr(cm, "hops", [])
+        for h in cm_hops:
+            from_id = h.get("canonical_from_id") if isinstance(h, dict) else getattr(h, "canonical_from_id", None)
+            to_id = h.get("canonical_to_id") if isinstance(h, dict) else getattr(h, "canonical_to_id", None)
+            if not from_id:
+                fn = h.get("from_node", "") if isinstance(h, dict) else getattr(h, "from_node", "")
+                from_id = fn.split(":")[-1].strip()
+            if not to_id:
+                tn = h.get("to_node", "") if isinstance(h, dict) else getattr(h, "to_node", "")
+                to_id = tn.split(":")[-1].strip()
+
+            from_raw = (from_id or "").upper()
+            to_raw = (to_id or "").upper()
+            from_clean = (from_id or "").split(":")[-1].strip().upper()
+            to_clean = (to_id or "").split(":")[-1].strip().upper()
+
+            claims = []
+            supp = h.get("supporting_claims", []) if isinstance(h, dict) else getattr(h, "supporting_claims", [])
+            for sc in supp:
+                claims.append(sc if isinstance(sc, dict) else {"text": str(sc), "direction": "supporting"})
+            contra = h.get("contradicting_claims", []) if isinstance(h, dict) else getattr(h, "contradicting_claims", [])
+            for cc in contra:
+                claims.append(cc if isinstance(cc, dict) else {"text": str(cc), "direction": "opposing"})
+
+            hop_lookup.setdefault((from_clean, to_clean), []).extend(claims)
+            if from_raw and to_raw:
+                hop_lookup.setdefault((from_raw, to_raw), []).extend(claims)
+
     edges: list[PlaygroundEdge] = []
     for ge in evidence_graph.edges:
         edge_links = [link.to_dict() for link in ge.links]
+
+        # Path count: how many simple paths traverse this edge
+        edge_path_count = sum(
+            1 for p in all_simple_paths
+            if any(e.source_id == ge.source_id and e.target_id == ge.target_id for e in p)
+        )
+
+        # Evidence count: records in package referencing relevant target or gene
+        ev_count = 0
+        if ge.source_id.startswith("TARGET:"):
+            ev_count = _count_evidence_for_target(package, ge.source_id.replace("TARGET:", ""))
+        elif ge.target_id.startswith("TARGET:"):
+            ev_count = _count_evidence_for_target(package, ge.target_id.replace("TARGET:", ""))
+        if ev_count == 0 and (edge_path_count > 0 or ge.evidence_strength > 0):
+            ev_count = 1
+
+        # Hop claims from candidate mechanisms
+        src_clean = ge.source_id.split(":")[-1].upper()
+        tgt_clean = ge.target_id.split(":")[-1].upper()
+        hop_claims = hop_lookup.get((src_clean, tgt_clean)) or hop_lookup.get((ge.source_id.upper(), ge.target_id.upper())) or []
+
         edges.append(PlaygroundEdge(
             source_id=ge.source_id,
             target_id=ge.target_id,
@@ -336,6 +393,9 @@ def extract_relevant_subgraph(
             provenance=ge.provenance,
             data_quality=ge.data_quality,
             links=edge_links,
+            path_count=edge_path_count,
+            evidence_count=ev_count,
+            hop_claims=hop_claims,
         ))
 
     # ── Step 4: Extract evidence records ───────────────────────────────
@@ -385,51 +445,28 @@ def extract_relevant_subgraph(
             claim_b_evidence_ids=[str(c.claim_id_b)],
         ))
 
-    # ── Step 7: Extract claims from audit report ───────────────────────
-    claims: list[PlaygroundClaim] = []
-    # Supporting claims from support assessment
-    for claim_id in result.support_assessment.supporting_claim_ids:
-        claims.append(PlaygroundClaim(
-            id=claim_id,
-            subject="",
-            predicate="SUPPORTS",
-            object="",
-            direction="supporting",
-            provenance_source="support_assessment",
-        ))
-    # Risk claims
-    for claim_id in result.risk_assessment.risk_claim_ids:
-        claims.append(PlaygroundClaim(
-            id=claim_id,
-            subject="",
-            predicate="OPPOSES",
-            object="",
-            direction="opposing",
-            provenance_source="risk_assessment",
-        ))
-
-    # ── Step 8: Build landscape and gaps ───────────────────────────────
+    # ── Step 7: Build landscape and gaps ───────────────────────────────
     landscape = _build_evidence_landscape(package, result)
     evidence_gaps = _build_evidence_gaps(package, result)
 
-    # ── Step 9: Assemble ───────────────────────────────────────────────
+    # ── Step 8: Assemble ───────────────────────────────────────────────
     return PlaygroundGraphData(
         hypothesis_id=str(result.hypothesis_id),
         drug_name=package.drug.name,
         disease_name=package.disease.name,
         nodes=nodes,
         edges=edges,
-        claims=claims,
         evidence=evidence_list,
         clinical_trials=trials,
         contradictions=contradictions,
         landscape=landscape,
         evidence_gaps=evidence_gaps,
-        candidate_mechanisms=list(result.mechanistic_assessment.candidate_mechanisms),
+        candidate_mechanisms=list(getattr(result.mechanistic_assessment, "candidate_mechanisms", []) or []),
+        claim_citations=getattr(result, "claim_citations", {}) or {},
         retrieval_confidence=package.retrieval_confidence,
         sources_queried=list(package.sources_queried),
         sources_failed=list(package.sources_failed),
         sealed_at=package.sealed_at.isoformat() if hasattr(package.sealed_at, "isoformat") else None,
-        data_source_failures=list(result.data_source_failures),
-        claim_extraction_method=result.claim_extraction_method,
+        data_source_failures=list(getattr(result, "data_source_failures", []) or []),
+        claim_extraction_method=getattr(result, "claim_extraction_method", "unknown"),
     )
